@@ -4,5 +4,5 @@
 -- Remove the line to undo; nothing else is changed.
 o.window(
   { class = "^org\\.quickshell$", title = "^roundhouse$" },
-  { float = true, size = { 360, 520 }, pin = true }
+  { float = true, size = { 360, 680 }, pin = true }
 )

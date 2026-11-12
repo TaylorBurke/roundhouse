@@ -131,7 +131,7 @@ place, so the board remembers the last 3000 lines it folded and skips replays. O
 trusted: an end may land before its start, and a late end frees a call a `batch` had wrongly
 marked blocked. A `batch` or `stop` only blocks calls that started before it and belong to
 the same agent. The `model` event wins over `context`'s model name until the next prompt.
-Known gap: a background call that is refused stays "running" (no `batch` can tell).
+A background call is judged like any other: its own `tool_end` arrives within milliseconds of launch (only the task keeps running), so one still open at the next `batch` was refused. (Stage 3 first exempted background calls; the recorded session showed a refused one glowing forever.)
 
 ## Renderer choice
 

@@ -10,16 +10,17 @@ Code plugin that draws this map in the desktop app. In a terminal session that p
 shows only its text feed; this project gets the picture on screen anyway, fed by
 ordinary Claude Code hooks. The code here is written fresh.
 
-**Status: stage 3 of 5, in progress.** The hook emitter and a terminal log viewer work, and
-`bin/roundhouse` opens a floating window that follows the log and lists per-station
-the resting map (hub, ten stations, spokes, icons, per-station counts) and the recent calls as plain text (no pulses yet), and nothing is installed into your Claude Code settings.
+**Status: stage 3 of 5 done, waiting for review.** The hook emitter, a terminal log viewer and a
+floating window work: the map pulses as Claude Code works, with a one-line current action and
+a feed underneath. No context ring, route line or theme yet (stage 4), nothing is installed
+into your Claude Code settings.
 
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
-| 3 | Window with the static map and live pulses | window (#1), board state (#3) and static map (#4) done; pulses and feed (#5) next |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | |
+| 3 | Window with the static map and live pulses | done, for review |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme | next |
 | 5 | Install and uninstall scripts | |
 
 ## How it works
@@ -83,7 +84,7 @@ bin/roundhouse    # opens the window; closing it ends the process
 ```
 
 Quickshell windows all report the app id `org.quickshell`, so the Hyprland rule matches on
-the title `roundhouse` as well. To float, size (360x520) and pin it, add this line to
+the title `roundhouse` as well. To float, size (360x680) and pin it, add this line to
 `~/.config/hypr/hyprland.lua` (remove it to undo):
 
 ```lua
@@ -107,6 +108,34 @@ so it scales: ten stations on an ellipse with You at the top and the rest clockw
 to each, dashed contour rings, an icon and label per station with the number of recent calls
 under it, and the model name in the hub. Colours are properties on `MapView`, ready for the
 theme work. Icons are original line drawings.
+
+### Pulses and the feed
+
+![a recorded session replayed into the window](docs/pulses.gif)
+
+- A call starting sends a dot from the hub out along its spoke and ripples the station; the
+  call ending sends one back, red if it failed. A station with a call running keeps a soft
+  amber glow.
+- A prompt pulses You and sends a dot on to Model; each step between tool batches pulses
+  Model; a finished answer sends a wide ring out from the hub.
+- A call that was refused (still open when the next step or the answer arrives) flashes red at
+  its station and shows as a red ✕ row. That includes background calls: only their task
+  outlives the call.
+- Under the map, one line says what is happening now ("Files: a.ts and 2 more · +1
+  elsewhere"), and below it the last 16 rows read ● running, · done, ✕ failed or blocked.
+  Finished rows that follow each other at one station are folded into one row with `+N`.
+- Only events from the last few seconds pulse, so opening the window on an old log does not
+  replay it.
+
+![a refused call and several pulses at once](docs/pulses-blocked.png)
+
+To watch a recorded log play back (for development and screenshots), point a second log
+directory at the window and replay into it:
+
+```bash
+LOT_MAP_DIR=/tmp/rh-demo bin/roundhouse &
+tools/replay.py recorded.jsonl /tmp/rh-demo --sid 520a9593
+```
 
 ## The log viewer
 
