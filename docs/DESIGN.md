@@ -97,8 +97,30 @@ A real `claude -p` session with the hooks attached showed:
   and it is not a background task.
 - `SessionStart` may omit `model`; the first `context` event supplies it.
 
-Still to check in an interactive session: a refusal by a `PreToolUse` hook, a background
-shell task from start to its notification, and subagent events.
+## Measured in stage 2b (interactive session)
+
+An interactive session on Claude Code with all 17 hooks attached showed:
+
+- **Call refused by a `PreToolUse` hook** (`omarchy-guard.sh`): `tool_start`, then nothing
+  for that call (no `tool_end`, no `ask`, no `denied`), then the next `batch`. The
+  "blocked" rule above holds for this case too. Seen twice, same result.
+- **Background shell task:** `tool_end` with `task`, then `stop` with
+  `bg: [{id, type: "shell", status: "running"}]`, then `task_end` (status `ok`) from the
+  notification prompt, then a `stop` with `bg: []`.
+- **Subagent:** `agent_start` with the type, `tool_*` events carrying `agent`, `agent_end`
+  with the same type and id. A background `Agent` call's `tool_end` carries `task` set to
+  the agent's id. `SubagentStop` also fires for Claude Code's own internal agents with an
+  empty `agent_type` and no matching start (four times in one short session, including
+  during `/compact`). The emitter now drops those.
+- **Pseudo-tool `SubagentHandback`:** called by a subagent to hand its report back; shown
+  at the Agents station.
+- **Model switch:** a `model` event with `from` and `to`, right when `/model` is used. The
+  `context` events keep naming the old model until the next response, so the renderer
+  should treat the `model` event as authoritative.
+- **Compaction:** `compact_start`, then a `session` event with `source: "compact"`, then
+  `compact_end`. A `context` reading taken at that point is stale (the transcript still has
+  the old numbers), so the emitter no longer writes one after a compaction; the next
+  `Stop` or `PostToolBatch` supplies a fresh one.
 
 ## Renderer choice
 

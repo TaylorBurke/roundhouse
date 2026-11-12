@@ -161,7 +161,7 @@ def classify(tool, tool_input):
         return "network", "artifact"
     if tool in ("Agent", "Task"):
         return "agents", clean(text_of(inp.get("description"))) or "subagent"
-    if tool in ("Workflow", "SendMessage", "TaskStop", "ListAgents"):
+    if tool in ("Workflow", "SendMessage", "TaskStop", "ListAgents", "SubagentHandback"):
         return "agents", tool
     if tool == "Skill":
         return "skills", clean(text_of(inp.get("skill")), 40) or "skill"
@@ -281,6 +281,8 @@ def events_for(data):
     elif kind == "PermissionDenied":
         out.append({"ev": "denied", **tool_fields()})
     elif kind in ("SubagentStart", "SubagentStop"):
+        if not clean(text_of(data.get("agent_type")), 40):
+            return []  # Claude Code's own internal agents: no matching start, nothing to show
         out.append({"ev": "agent_start" if kind == "SubagentStart" else "agent_end",
                     "type": clean(text_of(data.get("agent_type")), 40)})
     elif kind == "Stop":
@@ -304,7 +306,9 @@ def events_for(data):
         return []
 
     # How full the context window is, after the moments the main loop's usage changes.
-    if kind in ("Stop", "PostToolBatch", "PostCompact", "SessionStart") and agent is None:
+    # Not after a compaction: the transcript still holds the old, larger numbers then.
+    after_compact = kind == "PostCompact" or (kind == "SessionStart" and data.get("source") == "compact")
+    if kind in ("Stop", "PostToolBatch", "SessionStart") and agent is None and not after_compact:
         try:
             context = context_of(text_of(data.get("transcript_path")))
         except OSError:

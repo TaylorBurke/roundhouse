@@ -131,6 +131,30 @@ class EndToEnd(unittest.TestCase):
             self.assertEqual(emit.context_of(t.name), {"tokens": 1100, "model": "claude-x-1"})
         self.assertIsNone(emit.context_of("/etc/passwd"))
 
+    def test_internal_subagent_stop_is_dropped(self):
+        stop = {"hook_event_name": "SubagentStop", "agent_id": "ac71", "agent_type": ""}
+        self.assertEqual(emit.events_for(stop), [])
+        named = emit.events_for({**stop, "agent_type": "Explore"})
+        self.assertEqual([(e["ev"], e["type"]) for e in named], [("agent_end", "Explore")])
+
+    def test_no_context_reading_after_compaction(self):
+        with tempfile.TemporaryDirectory() as home:
+            path = os.path.join(home, ".claude", "t.jsonl")
+            os.makedirs(os.path.dirname(path))
+            row = {"message": {"model": "m", "usage": {"input_tokens": 5}}}
+            with open(path, "w") as f:
+                f.write(json.dumps(row) + "\n")
+            old = os.environ.get("HOME")
+            os.environ["HOME"] = home
+            try:
+                for data in ({"hook_event_name": "PostCompact"}, {"hook_event_name": "SessionStart", "source": "compact"}):
+                    kinds = [e["ev"] for e in emit.events_for({**data, "transcript_path": path})]
+                    self.assertNotIn("context", kinds)
+                kinds = [e["ev"] for e in emit.events_for({"hook_event_name": "Stop", "transcript_path": path})]
+                self.assertIn("context", kinds)
+            finally:
+                os.environ["HOME"] = old
+
     def test_log_is_cut_back(self):
         with tempfile.TemporaryDirectory() as folder:
             os.environ["LOT_MAP_DIR"] = folder
