@@ -1,0 +1,148 @@
+#!/usr/bin/python3 -I
+"""Follow the lot-map event log in a terminal.
+
+  lot-map-log              follow, starting with the last 20 events
+  lot-map-log -n 0         only new events
+  lot-map-log --no-follow  print what is there and exit
+  lot-map-log --raw        the JSON lines as they are
+  lot-map-log -s a2da6f68  one session only
+"""
+import argparse
+import json
+import os
+import sys
+import time
+
+STATIONS = {
+    "you": "You", "model": "Model", "memory": "Memory", "files": "Files", "shell": "Shell",
+    "network": "Network", "browser": "Browser", "agents": "Agents", "skills": "Skills", "hooks": "Hooks",
+}
+DIM, RED, AMBER, CYAN, BOLD, OFF = "\033[2m", "\033[31m", "\033[33m", "\033[36m", "\033[1m", "\033[0m"
+
+
+def log_path():
+    base = os.environ.get("LOT_MAP_DIR")
+    if not base:
+        runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/lot-map-{os.getuid()}"
+        base = os.path.join(runtime, "lot-map")
+    return os.path.join(base, "events.jsonl")
+
+
+def describe(e):
+    """One event as (mark, color, station, text)."""
+    ev = e.get("ev")
+    station = STATIONS.get(e.get("station"), "")
+    label = e.get("label") or ""
+    sub = "  ↳agent" if e.get("agent") else ""
+    if ev == "tool_start":
+        return "●", AMBER, station, f"{label}{'  [background]' if e.get('bg') else ''}{sub}"
+    if ev == "tool_end":
+        took = f"  {e['ms']} ms" if "ms" in e else ""
+        task = f"  → task {e['task']}" if e.get("task") else ""
+        if e.get("status") == "ok":
+            return "·", DIM, station, f"{label}{took}{task}{sub}"
+        return "✕", RED, station, f"{label}{took}{'  interrupted' if e.get('interrupt') else ''}{sub}"
+    if ev == "prompt":
+        return "▸", BOLD, "You", "new message"
+    if ev == "stop":
+        running = e.get("bg") or []
+        return "◂", BOLD, "You", "answer ready" + (f"  ({len(running)} background)" if running else "")
+    if ev == "stop_error":
+        return "✕", RED, "Model", f"stopped: {e.get('error')}"
+    if ev == "batch":
+        return "·", DIM, "Model", "next step"
+    if ev == "context":
+        return "◌", CYAN, "Model", f"context {e.get('tokens'):,} tokens · {e.get('model')}"
+    if ev == "model":
+        return "◆", AMBER, "Model", f"{e.get('from')} → {e.get('to')}"
+    if ev == "ask":
+        return "?", AMBER, "Hooks", f"asked permission: {e.get('tool')}"
+    if ev == "denied":
+        return "✕", RED, "Hooks", f"denied: {e.get('tool')}"
+    if ev == "agent_start":
+        return "●", AMBER, "Agents", f"{e.get('type') or 'agent'} started  {e.get('agent') or ''}"
+    if ev == "agent_end":
+        return "·", DIM, "Agents", f"{e.get('type') or 'agent'} finished  {e.get('agent') or ''}"
+    if ev == "task_end":
+        bad = e.get("status") == "err"
+        return ("✕" if bad else "·"), (RED if bad else DIM), "Shell", f"background task {e.get('task')} {e.get('status') or 'reported'}"
+    if ev == "compact_start":
+        return "●", AMBER, "Model", f"compacting ({e.get('trigger')})"
+    if ev == "compact_end":
+        return "·", DIM, "Model", "compacted"
+    if ev == "notify":
+        return "!", AMBER, "You", f"notification: {e.get('type')}"
+    if ev == "session":
+        return "◆", CYAN, "Session", f"{e.get('source')} in {e.get('dir')}" + (f" · {e.get('model')}" if e.get("model") else "")
+    if ev == "session_end":
+        return "◆", CYAN, "Session", f"ended ({e.get('reason')})"
+    return "?", DIM, "", str(ev)
+
+
+def show(line, args, color):
+    line = line.strip()
+    if not line:
+        return
+    try:
+        e = json.loads(line)
+    except ValueError:
+        return
+    if args.session and e.get("sid") != args.session:
+        return
+    if args.raw:
+        print(line, flush=True)
+        return
+    mark, tint, station, text = describe(e)
+    stamp = time.strftime("%H:%M:%S", time.localtime(e.get("ts", 0))) + f".{int(e.get('ts', 0) * 1000) % 1000:03d}"
+    if color:
+        print(f"{DIM}{stamp} {e.get('sid', ''):8}{OFF} {tint}{mark} {station:8} {text}{OFF}", flush=True)
+    else:
+        print(f"{stamp} {e.get('sid', ''):8} {mark} {station:8} {text}", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Follow the lot-map event log.")
+    parser.add_argument("-n", type=int, default=20, help="how many earlier events to show first (default 20)")
+    parser.add_argument("-s", "--session", help="show one session only (first 8 characters of its id)")
+    parser.add_argument("--raw", action="store_true", help="print the JSON lines as they are")
+    parser.add_argument("--no-follow", action="store_true", help="print and exit")
+    args = parser.parse_args()
+    color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+    path = log_path()
+
+    position = 0
+    if os.path.exists(path):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+            position = f.tell()
+        for line in lines[-args.n:] if args.n > 0 else []:
+            show(line, args, color)
+    elif not args.no_follow:
+        print(f"waiting for {path}", file=sys.stderr)
+    if args.no_follow:
+        return
+
+    pending = ""
+    while True:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        if size < position:  # the emitter cut the log back
+            position, pending = 0, ""
+        if size > position:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                f.seek(position)
+                pending += f.read()
+                position = f.tell()
+            *whole, pending = pending.split("\n")
+            for line in whole:
+                show(line, args, color)
+        time.sleep(0.15)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (KeyboardInterrupt, BrokenPipeError):
+        pass
