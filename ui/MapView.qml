@@ -15,7 +15,8 @@ Item {
     property color ring: "#1c212b"    // contour rings
     property color disc: "#12151c"    // station and hub fill
     property color discEdge: "#2c3240"
-    property color accent: "#e0a458"  // hub outline
+    property color accent: "#e0a458"  // hub outline, running calls, outbound pulses
+    property color alert: "#f7768e"   // failed and blocked calls
 
     readonly property var stations: [
         { key: "you", label: "You" }, { key: "model", label: "Model" }, { key: "memory", label: "Memory" },
@@ -39,9 +40,80 @@ Item {
     function countOf(key) {
         return revision >= 0 && session ? session.stations[key].count : 0;
     }
+    function runningOf(key) {
+        return revision >= 0 && session ? session.stations[key].running : 0;
+    }
+    function indexOf(key) {
+        for (var i = 0; i < stations.length; i++) if (stations[i].key === key) return i;
+        return -1;
+    }
+
+    // ---- pulses ---------------------------------------------------------------------------
+    // handle() is fed each live event. A call starting sends a dot out along its spoke; the
+    // call ending sends one back (red if it failed). Ripples mark the station.
+    function dot(from, to, tint, ms, delay) {
+        dotC.createObject(overlay, { p0: from, p1: to, tint: tint, ms: ms, delay: delay || 0 });
+    }
+    function ripple(at, tint, r0, r1, ms, delay) {
+        rippleC.createObject(overlay, { cx0: at.x, cy0: at.y, tint: tint, r0: r0, r1: r1, ms: ms, delay: delay || 0 });
+    }
+    function handle(ev, blocked) {
+        var hub = Qt.point(cx, cy), k = ev.ev, i = indexOf(ev.station || (k === "ask" || k === "denied" ? "hooks" : ""));
+        if (k === "tool_start" && i >= 0) {
+            dot(hub, pos(i), accent, 420);
+            ripple(pos(i), accent, discR, discR * 1.9, 700, 380);
+        } else if (k === "tool_end" && i >= 0) {
+            var tint = ev.status === "err" ? alert : ink;
+            ripple(pos(i), tint, discR, discR * 1.9, 700);
+            dot(pos(i), hub, tint, 420);
+        } else if (k === "prompt") {
+            var you = pos(indexOf("you")), model = pos(indexOf("model"));
+            ripple(you, accent, discR, discR * 1.9, 700);
+            dot(you, hub, accent, 380);
+            dot(hub, model, accent, 380, 380);
+            ripple(model, accent, discR, discR * 1.9, 700, 760);
+        } else if (k === "batch") {
+            var m = pos(indexOf("model"));
+            ripple(m, ink, discR, discR * 1.9, 700);
+            dot(m, hub, ink, 420);
+        } else if (k === "stop") {
+            ripple(hub, accent, hubR, Math.max(rx, ry) * 1.15, 1100);
+            ripple(pos(indexOf("you")), accent, discR, discR * 1.9, 700, 500);
+        } else if ((k === "ask" || k === "denied") && i >= 0) {
+            ripple(pos(i), k === "denied" ? alert : accent, discR, discR * 1.9, 700);
+        }
+        (blocked || []).forEach(function (b) {
+            var j = indexOf(b.station);
+            if (j < 0) return;
+            ripple(pos(j), alert, discR, discR * 2.1, 900);
+            dot(pos(j), hub, alert, 420);
+        });
+    }
+
     function modelName() {
         var m = revision >= 0 && session ? session.model : "";
         return m.replace(/^claude-/, "").replace(/-(\d)/g, " $1").replace(/(\d) (\d)/, "$1.$2");
+    }
+
+    // a steady glow behind every station that has a call running
+    Repeater {
+        model: root.stations
+        Rectangle {
+            id: glow
+            required property int index
+            required property var modelData
+            readonly property bool busy: root.runningOf(modelData.key) > 0
+            z: -1
+            visible: busy
+            width: root.discR * 3.0; height: width; radius: width / 2
+            x: root.pos(index).x - width / 2; y: root.pos(index).y - height / 2
+            color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.22)
+            SequentialAnimation on opacity {
+                running: glow.busy; loops: Animation.Infinite
+                NumberAnimation { from: 0.45; to: 1.0; duration: 700; easing.type: Easing.InOutSine }
+                NumberAnimation { from: 1.0; to: 0.45; duration: 700; easing.type: Easing.InOutSine }
+            }
+        }
     }
 
     Canvas {
@@ -82,6 +154,52 @@ Item {
             c.beginPath(); c.arc(root.cx, root.cy, root.hubR, 0, 2 * Math.PI);
             c.fillStyle = root.disc; c.fill();
             c.strokeStyle = root.accent; c.lineWidth = 1.6; c.stroke();
+        }
+    }
+
+    Item { id: overlay; anchors.fill: parent }
+
+    Component {
+        id: dotC
+        Rectangle {
+            id: d
+            property point p0; property point p1; property color tint; property int ms: 420; property int delay: 0
+            width: 8; height: 8; radius: 4; color: tint; opacity: 0
+            x: p0.x - 4; y: p0.y - 4
+            SequentialAnimation {
+                running: true
+                PauseAnimation { duration: d.delay }
+                PropertyAction { target: d; property: "opacity"; value: 1 }
+                ParallelAnimation {
+                    NumberAnimation { target: d; property: "x"; to: d.p1.x - 4; duration: d.ms; easing.type: Easing.InOutQuad }
+                    NumberAnimation { target: d; property: "y"; to: d.p1.y - 4; duration: d.ms; easing.type: Easing.InOutQuad }
+                }
+                PropertyAction { target: d; property: "opacity"; value: 0 }
+                ScriptAction { script: d.destroy() }
+            }
+        }
+    }
+
+    Component {
+        id: rippleC
+        Rectangle {
+            id: r
+            property real cx0; property real cy0; property color tint
+            property real r0: 10; property real r1: 30; property int ms: 700; property int delay: 0
+            property real size: r0
+            width: size * 2; height: width; radius: size
+            x: cx0 - size; y: cy0 - size
+            color: "transparent"; border.width: 2; border.color: tint; opacity: 0
+            SequentialAnimation {
+                running: true
+                PauseAnimation { duration: r.delay }
+                PropertyAction { target: r; property: "opacity"; value: 0.85 }
+                ParallelAnimation {
+                    NumberAnimation { target: r; property: "size"; from: r.r0; to: r.r1; duration: r.ms; easing.type: Easing.OutCubic }
+                    NumberAnimation { target: r; property: "opacity"; to: 0; duration: r.ms }
+                }
+                ScriptAction { script: r.destroy() }
+            }
         }
     }
 

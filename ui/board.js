@@ -4,6 +4,8 @@
 
 var MAX_ENTRIES = 80;
 var MAX_SEEN = 3000;
+var LABELS = { you: "You", model: "Model", memory: "Memory", files: "Files", shell: "Shell", network: "Network",
+               browser: "Browser", agents: "Agents", skills: "Skills", hooks: "Hooks" };
 var STATIONS = ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"];
 
 function newBoard() {
@@ -17,6 +19,7 @@ function newSession(sid) {
         sid: sid, dir: "", model: "", tokens: 0, lastTs: 0, ended: false,
         switched: false,          // a model event since the last prompt: context's model name is stale
         stations: stations,
+        newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
         entries: [],              // newest last, at most MAX_ENTRIES
         byId: {},                 // tool-use id -> entry still in entries
         tasks: {},                // background task id -> { station, label, status }
@@ -65,12 +68,15 @@ function recount(sess) {
     });
 }
 
-// A batch or a stop means every call that started before it has finished. One still
-// open (and not a background call) was refused. Subagents are judged by their own events.
+// A batch or a stop means every call that started before it has finished. One still open was
+// refused. That holds for background calls too: the call itself ends within milliseconds of
+// launching (only its task keeps running), as measured in stage 2b. Subagents are judged by
+// their own events.
 function closeOpen(sess, ev) {
     sess.entries.forEach(function (e) {
-        if (e.status === "running" && !e.bg && e.id && e.ts <= ev.ts && (e.agent || null) === (ev.agent || null)) {
+        if (e.status === "running" && e.id && e.ts <= ev.ts && (e.agent || null) === (ev.agent || null)) {
             e.status = "blocked";
+            sess.newlyBlocked.push({ station: e.station, label: e.label });
         }
     });
 }
@@ -102,6 +108,7 @@ function fold(board, ev) {
     if (!remember(board, JSON.stringify(ev))) return false;   // replayed after the log was cut back
     var sess = board.sessions[ev.sid] || (board.sessions[ev.sid] = newSession(ev.sid));
     var kind = ev.ev;
+    sess.newlyBlocked = [];
     if (ev.ts > sess.lastTs) sess.lastTs = ev.ts;
     if (!board.active || ev.ts >= board.sessions[board.active].lastTs) board.active = ev.sid;
 
@@ -134,7 +141,10 @@ function fold(board, ev) {
         note(sess, ev, "hooks", "asked permission: " + (ev.tool || ""));
     } else if (kind === "denied") {
         var denied = ev.id ? sess.byId[ev.id] : null;
-        if (denied && denied.status === "running") denied.status = "blocked";
+        if (denied && denied.status === "running") {
+            denied.status = "blocked";
+            sess.newlyBlocked.push({ station: denied.station, label: denied.label });
+        }
         note(sess, ev, "hooks", "denied: " + (ev.tool || ""), "err");
     } else if (kind === "agent_start") {
         sess.agents[ev.agent] = { type: ev.type, running: true };
@@ -163,11 +173,43 @@ function fold(board, ev) {
     return true;
 }
 
-// Parse one log line and fold it. Returns false for a blank or damaged line.
+// Parse one log line and fold it. Returns the event, or false for a blank, damaged or replayed line.
 function foldLine(board, line) {
     var ev;
     try { ev = JSON.parse(line); } catch (e) { return false; }
-    return fold(board, ev);
+    return fold(board, ev) ? ev : false;
 }
 
-if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, STATIONS: STATIONS };
+// What is happening now, in one line: the newest running call, how many more at its station,
+// and how many are running elsewhere.
+function currentAction(sess) {
+    if (!sess) return "waiting for events";
+    var running = sess.entries.filter(function (e) { return e.status === "running"; });
+    if (running.length === 0) return sess.ended ? "session ended" : "idle";
+    var newest = running[running.length - 1];
+    var same = running.filter(function (e) { return e.station === newest.station; }).length;
+    var text = LABELS[newest.station] + ": " + newest.label;
+    if (same > 1) text += " and " + (same - 1) + " more";
+    if (running.length > same) text += " \u00b7 +" + (running.length - same) + " elsewhere";
+    return text;
+}
+
+// The feed: the newest `max` rows, newest first. Finished rows that follow each other at one
+// station are folded into one row with `extra` set to how many it absorbed.
+function feedRows(sess, max) {
+    if (!sess) return [];
+    var rows = [];
+    sess.entries.forEach(function (e) {
+        var last = rows[rows.length - 1];
+        if (last && e.status === "ok" && last.status === "ok" && last.station === e.station) {
+            last.label = e.label;
+            last.extra++;
+            return;
+        }
+        rows.push({ station: e.station, name: LABELS[e.station] || e.station, label: e.label, status: e.status, extra: 0,
+                    mark: e.status === "running" ? "\u25cf" : (e.status === "ok" ? "\u00b7" : "\u2715") });
+    });
+    return rows.slice(-max).reverse();
+}
+
+if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, feedRows: feedRows, STATIONS: STATIONS };

@@ -15,13 +15,22 @@ Item {
         if (!dir) dir = (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp/lot-map-" + Quickshell.env("UID")) + "/lot-map";
         return dir + "/events.jsonl";
     }
+    // An event that is happening now (not history replayed at start-up) in the session on show.
+    // `blocked` lists the calls that event just marked blocked.
+    signal live(var ev, var blocked)
     readonly property var active: revision >= 0 && board.active ? board.sessions[board.active] : null
 
     Process {
         running: true
         command: ["tail", "-n", "500", "-F", "--", root.path]
         stdout: SplitParser {
-            onRead: line => { if (Board.foldLine(root.board, line)) root.revision++; }
+            onRead: line => {
+                var ev = Board.foldLine(root.board, line);
+                if (!ev) return;
+                root.revision++;
+                if (ev.sid === root.board.active && Date.now() / 1000 - ev.ts < 5)
+                    root.live(ev, root.board.sessions[ev.sid].newlyBlocked);
+            }
         }
     }
 }

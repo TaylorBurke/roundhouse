@@ -57,15 +57,18 @@ QtObject {
         s = sess(b);
         check("stop", [s.entries.filter(function (e) { return e.id === "r"; })[0].status, s.entries.filter(function (e) { return e.id === "n"; })[0].status], ["blocked", "running"]);
 
-        // background call stays open; its task runs, then ends
+        // a background call ends at once (its task keeps running); one that never ends was refused
         b = Board.newBoard();
         Board.fold(b, ev({ ts: 1, ev: "tool_start", id: "g", station: "shell", label: "sleep", tool: "Bash", bg: true }));
-        Board.fold(b, ev({ ts: 1.1, ev: "batch" }));
-        check("bg not blocked", sess(b).entries[0].status, "running");
         Board.fold(b, ev({ ts: 1.2, ev: "tool_end", id: "g", station: "shell", label: "sleep", tool: "Bash", status: "ok", task: "t1" }));
+        Board.fold(b, ev({ ts: 1.3, ev: "batch" }));
+        check("bg ended", sess(b).entries.filter(function (e) { return e.id === "g"; })[0].status, "ok");
         check("bg task", sess(b).tasks.t1.status, "running");
         Board.fold(b, ev({ ts: 5, ev: "task_end", task: "t1", status: "ok" }));
         check("bg task done", sess(b).tasks.t1.status, "ok");
+        Board.fold(b, ev({ ts: 6, ev: "tool_start", id: "h", station: "shell", label: "sleep", tool: "Bash", bg: true }));
+        Board.fold(b, ev({ ts: 7, ev: "batch" }));
+        check("bg refused", sess(b).entries.filter(function (e) { return e.id === "h"; })[0].status, "blocked");
 
         // a subagent's batch does not block the main loop's open call
         b = Board.newBoard();
@@ -116,6 +119,42 @@ QtObject {
         check("compacting", sess(b).stations.model.running, 1);
         Board.fold(b, ev({ ts: 4, ev: "compact_end", trigger: "manual" }));
         check("compacted", sess(b).stations.model.running, 0);
+
+        // foldLine hands back the event, and newlyBlocked names what just got blocked
+        b = Board.newBoard();
+        var got = Board.foldLine(b, JSON.stringify({ sid: "s1", ts: 1, ev: "tool_start", id: "q", station: "files", label: "f", tool: "Edit" }));
+        check("foldLine event", got.ev, "tool_start");
+        check("foldLine replay", Board.foldLine(b, JSON.stringify({ sid: "s1", ts: 1, ev: "tool_start", id: "q", station: "files", label: "f", tool: "Edit" })), false);
+        Board.fold(b, ev({ ts: 2, ev: "batch" }));
+        check("newlyBlocked", sess(b).newlyBlocked, [{ station: "files", label: "f" }]);
+        Board.fold(b, ev({ ts: 3, ev: "prompt" }));
+        check("newlyBlocked resets", sess(b).newlyBlocked, []);
+
+        // the current-action line
+        b = Board.newBoard();
+        check("action none", Board.currentAction(null), "waiting for events");
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
+        check("action idle", Board.currentAction(sess(b)), "idle");
+        Board.fold(b, ev({ ts: 2, ev: "tool_start", id: "1", station: "files", label: "a.ts", tool: "Read" }));
+        Board.fold(b, ev({ ts: 3, ev: "tool_start", id: "2", station: "files", label: "b.ts", tool: "Read" }));
+        Board.fold(b, ev({ ts: 4, ev: "tool_start", id: "3", station: "files", label: "c.ts", tool: "Read" }));
+        check("action same", Board.currentAction(sess(b)), "Files: c.ts and 2 more");
+        Board.fold(b, ev({ ts: 5, ev: "tool_start", id: "4", station: "network", label: "example.com", tool: "WebFetch" }));
+        check("action elsewhere", Board.currentAction(sess(b)), "Network: example.com \u00b7 +3 elsewhere");
+
+        // the feed: finished rows at one station fold, running and failed ones never do, 16 rows at most
+        b = Board.newBoard();
+        for (i = 0; i < 5; i++) Board.fold(b, ev({ ts: 1 + i, ev: "tool_end", id: "f" + i, station: "files", label: "n" + i, tool: "Read", status: "ok" }));
+        var rows = Board.feedRows(sess(b), 16);
+        check("fold", [rows.length, rows[0].label, rows[0].extra, rows[0].mark], [1, "n4", 4, "\u00b7"]);
+        Board.fold(b, ev({ ts: 10, ev: "tool_end", id: "bad", station: "files", label: "x", tool: "Read", status: "err" }));
+        Board.fold(b, ev({ ts: 11, ev: "tool_start", id: "run", station: "files", label: "y", tool: "Read" }));
+        Board.fold(b, ev({ ts: 12, ev: "tool_end", id: "ok2", station: "files", label: "z", tool: "Read", status: "ok" }));
+        rows = Board.feedRows(sess(b), 16);
+        check("no fold across", rows.map(function (r) { return r.mark + r.label + r.extra; }), ["\u00b7z0", "\u25cfy0", "\u2715x0", "\u00b7n44"]);
+        b = Board.newBoard();
+        for (i = 0; i < 40; i++) Board.fold(b, ev({ ts: 1 + i, ev: "tool_end", id: "m" + i, station: i % 2 ? "files" : "shell", label: "n" + i, tool: "Read", status: "ok" }));
+        check("rows cap", [Board.feedRows(sess(b), 16).length, Board.feedRows(sess(b), 16)[0].label], [16, "n39"]);
 
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
