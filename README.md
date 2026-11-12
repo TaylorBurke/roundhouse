@@ -11,13 +11,14 @@ shows only its text feed; this project gets the picture on screen anyway, fed by
 ordinary Claude Code hooks. The code here is written fresh.
 
 **Status: stage 3 of 5, in progress.** The hook emitter and a terminal log viewer work, and
-`bin/roundhouse` opens an empty floating window (the map is not drawn yet), and nothing is installed into your Claude Code settings.
+`bin/roundhouse` opens a floating window that follows the log and lists per-station
+counts and recent calls as plain text (the map is not drawn yet), and nothing is installed into your Claude Code settings.
 
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
-| 3 | Window with the static map and live pulses | window skeleton done (#1), map next |
+| 3 | Window with the static map and live pulses | window (#1) and board state (#3) done; map (#4) and pulses (#5) next |
 | 4 | Context ring, route line, error dots, background tasks, subagents, theme | |
 | 5 | Install and uninstall scripts | |
 
@@ -91,7 +92,15 @@ dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")
 
 To try the rule for one session without editing anything:
 `hyprctl eval 'dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")'`.
-Requires `quickshell`. See [docs/roundhouse-window.png](docs/roundhouse-window.png).
+Requires `quickshell`.
+
+The window tails the log with `tail -F` and folds each line into a board per session
+(`ui/board.js`): calls are paired by id, a call still open at the next `batch` or `stop`
+is marked blocked (background calls are not), the newest 80 entries are kept, and the most
+recently active session is shown. It copes with a log that does not exist yet and with the
+emitter cutting the log back (the replayed lines are recognised and skipped).
+
+![the window after a refused call and a log cut](docs/board-live.png)
 
 ## The log viewer
 
@@ -114,12 +123,12 @@ bin/lot-map-log -s 7c8862de  one session only
 
 ## Requirements
 
-Python 3 (standard library only). Claude Code 2.1.295 or later is recommended.
+Python 3 (standard library only); `quickshell` for the window; `qml6` (qt6-declarative) to run the board tests. Claude Code 2.1.295 or later is recommended.
 
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests
+python3 -m unittest discover -s tests   # includes tests/board.test.qml, run under qml6
 ```
 
 ## License
