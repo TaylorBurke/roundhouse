@@ -10,6 +10,8 @@ ShellRoot {
         visible: true
         color: "#0b0d12"
 
+        Settings { id: settings }
+
         LogTail {
             id: tail
             onLive: (ev, blocked) => map.handle(ev, blocked)
@@ -21,6 +23,7 @@ ShellRoot {
             height: Math.min(parent.width, parent.height * 0.6)
             session: tail.active
             revision: tail.revision
+            windowSetting: settings.contextWindow
         }
 
         Feed {

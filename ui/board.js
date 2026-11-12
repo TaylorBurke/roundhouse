@@ -17,6 +17,8 @@ function newSession(sid) {
     STATIONS.forEach(function (s) { stations[s] = { count: 0, running: 0, blocked: 0, errors: 0 }; });
     return {
         sid: sid, dir: "", model: "", tokens: 0, lastTs: 0, ended: false,
+        hasContext: false,        // a context reading has arrived
+        tokensStale: false,       // a compaction since the last reading: the number is out of date
         switched: false,          // a model event since the last prompt: context's model name is stale
         stations: stations,
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
@@ -158,6 +160,7 @@ function fold(board, ev) {
         sess.entries.forEach(function (e) {
             if (e.status === "running" && e.station === "model" && e.label === "compacting") e.status = "ok";
         });
+        sess.tokensStale = true;
         note(sess, ev, "model", "compacted");
     } else if (kind === "model") {
         sess.model = ev.to || sess.model;
@@ -165,6 +168,8 @@ function fold(board, ev) {
         note(sess, ev, "model", (ev.from || "?") + " → " + (ev.to || "?"));
     } else if (kind === "context") {
         sess.tokens = ev.tokens || 0;
+        sess.hasContext = true;
+        sess.tokensStale = false;
         if (ev.model && !sess.switched) sess.model = ev.model;
     } else if (kind === "notify") {
         note(sess, ev, "you", "notification: " + (ev.type || ""));
@@ -178,6 +183,32 @@ function foldLine(board, line) {
     var ev;
     try { ev = JSON.parse(line); } catch (e) { return false; }
     return fold(board, ev) ? ev : false;
+}
+
+// A context-window setting as a number of tokens: 200000, "1m", "200k" and so on. 0 means auto.
+function parseWindow(value) {
+    if (typeof value === "number") return value >= 1000 ? Math.round(value) : 0;
+    var m = /^\s*(\d+(?:\.\d+)?)\s*([km])\s*$/i.exec(String(value || ""));
+    if (!m) return 0;
+    return Math.round(parseFloat(m[1]) * (m[2].toLowerCase() === "m" ? 1000000 : 1000));
+}
+
+// The context window: the setting if there is one, else a guess from the model name (the
+// transcript carries no window size), and never smaller than what is already in it.
+function windowSize(model, tokens, override) {
+    var size = override || (/(^|[^a-z0-9])1m([^a-z0-9]|$)/i.test(model || "") ? 1000000 : 200000);
+    return tokens > size ? 1000000 : size;
+}
+
+// How full the context is: { share (0..1), size, stale }, or null before the first reading.
+function contextOf(sess, override) {
+    if (!sess || !sess.hasContext) return null;
+    var size = windowSize(sess.model, sess.tokens, override);
+    return { share: Math.min(1, sess.tokens / size), size: size, stale: sess.tokensStale };
+}
+
+function compacting(sess) {
+    return !!sess && sess.entries.some(function (e) { return e.station === "model" && e.label === "compacting" && e.status === "running"; });
 }
 
 // What is happening now, in one line: the newest running call, how many more at its station,
@@ -212,4 +243,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, feedRows: feedRows, STATIONS: STATIONS };
