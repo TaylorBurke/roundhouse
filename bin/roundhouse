@@ -1,0 +1,4 @@
+#!/bin/sh
+# Open the roundhouse window. Closing the window ends the process.
+here=$(dirname "$(readlink -f "$0")")
+exec quickshell -p "$here/../ui" "$@"

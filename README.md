@@ -10,14 +10,14 @@ Code plugin that draws this map in the desktop app. In a terminal session that p
 shows only its text feed; this project gets the picture on screen anyway, fed by
 ordinary Claude Code hooks. The code here is written fresh.
 
-**Status: stage 2 of 5.** The hook emitter and a terminal log viewer work. The window
-does not exist yet, and nothing is installed into your Claude Code settings.
+**Status: stage 3 of 5, in progress.** The hook emitter and a terminal log viewer work, and
+`bin/roundhouse` opens an empty floating window (the map is not drawn yet), and nothing is installed into your Claude Code settings.
 
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
-| 3 | Window with the static map and live pulses | next |
+| 3 | Window with the static map and live pulses | window skeleton done (#1), map next |
 | 4 | Context ring, route line, error dots, background tasks, subagents, theme | |
 | 5 | Install and uninstall scripts | |
 
@@ -74,6 +74,24 @@ claude --settings /tmp/roundhouse-hooks.json
 
 To undo: close that session and delete `/tmp/roundhouse-hooks.json`. The log disappears
 at logout, or remove it with `rm -r "$XDG_RUNTIME_DIR/lot-map"`.
+
+## The window
+
+```bash
+bin/roundhouse    # opens the window; closing it ends the process
+```
+
+Quickshell windows all report the app id `org.quickshell`, so the Hyprland rule matches on
+the title `roundhouse` as well. To float, size (360x520) and pin it, add this line to
+`~/.config/hypr/hyprland.lua` (remove it to undo):
+
+```lua
+dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")
+```
+
+To try the rule for one session without editing anything:
+`hyprctl eval 'dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")'`.
+Requires `quickshell`. See [docs/roundhouse-window.png](docs/roundhouse-window.png).
 
 ## The log viewer
 
