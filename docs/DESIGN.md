@@ -122,6 +122,17 @@ An interactive session on Claude Code with all 17 hooks attached showed:
   the old numbers), so the emitter no longer writes one after a compaction; the next
   `Stop` or `PostToolBatch` supplies a fresh one.
 
+## Board state (stage 3)
+
+`ui/board.js` is plain JavaScript with no QML in it, so `tests/board.test.qml` can run it
+under `qml6`. `ui/LogTail.qml` runs `tail -n 500 -F` and feeds it lines. `tail -F` waits for
+a log that does not exist and starts again from the top when the emitter cuts the file in
+place, so the board remembers the last 3000 lines it folded and skips replays. Order is not
+trusted: an end may land before its start, and a late end frees a call a `batch` had wrongly
+marked blocked. A `batch` or `stop` only blocks calls that started before it and belong to
+the same agent. The `model` event wins over `context`'s model name until the next prompt.
+Known gap: a background call that is refused stays "running" (no `batch` can tell).
+
 ## Renderer choice
 
 Quickshell: already installed, no build step, QML drawing, and the theme can be followed
