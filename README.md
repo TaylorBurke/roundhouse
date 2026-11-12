@@ -12,13 +12,13 @@ ordinary Claude Code hooks. The code here is written fresh.
 
 **Status: stage 3 of 5, in progress.** The hook emitter and a terminal log viewer work, and
 `bin/roundhouse` opens a floating window that follows the log and lists per-station
-counts and recent calls as plain text (the map is not drawn yet), and nothing is installed into your Claude Code settings.
+the resting map (hub, ten stations, spokes, icons, per-station counts) and the recent calls as plain text (no pulses yet), and nothing is installed into your Claude Code settings.
 
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
-| 3 | Window with the static map and live pulses | window (#1) and board state (#3) done; map (#4) and pulses (#5) next |
+| 3 | Window with the static map and live pulses | window (#1), board state (#3) and static map (#4) done; pulses and feed (#5) next |
 | 4 | Context ring, route line, error dots, background tasks, subagents, theme | |
 | 5 | Install and uninstall scripts | |
 
@@ -100,7 +100,13 @@ is marked blocked (background calls are not), the newest 80 entries are kept, an
 recently active session is shown. It copes with a log that does not exist yet and with the
 emitter cutting the log back (the replayed lines are recognised and skipped).
 
-![the window after a refused call and a log cut](docs/board-live.png)
+![the resting map](docs/map-resting.png)
+
+The map (`ui/MapView.qml`, icons in `ui/icons.js`) is drawn on a Canvas from the window's size,
+so it scales: ten stations on an ellipse with You at the top and the rest clockwise, a spoke
+to each, dashed contour rings, an icon and label per station with the number of recent calls
+under it, and the model name in the hub. Colours are properties on `MapView`, ready for the
+theme work. Icons are original line drawings.
 
 ## The log viewer
 

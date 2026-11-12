@@ -25,6 +25,7 @@ QtObject {
         check("running", [s.entries[0].status, s.stations.files.running], ["running", 1]);
         Board.fold(b, ev({ ts: 2, ev: "tool_end", id: "a", station: "files", label: "x", tool: "Read", status: "ok", ms: 6 }));
         check("paired", [s.entries.length, s.entries[0].status, s.entries[0].ms, s.stations.files.running], [1, "ok", 6, 0]);
+        check("count", [s.stations.files.count, s.stations.shell.count], [1, 0]);
 
         // end before start, then the start lands: one entry, result kept
         b = Board.newBoard();

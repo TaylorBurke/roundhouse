@@ -53,11 +53,12 @@ function note(sess, ev, station, label, status) {
 function recount(sess) {
     STATIONS.forEach(function (s) {
         var c = sess.stations[s];
-        c.running = 0; c.blocked = 0; c.errors = 0;
+        c.count = 0; c.running = 0; c.blocked = 0; c.errors = 0;
     });
     sess.entries.forEach(function (e) {
         var c = sess.stations[e.station];
         if (!c) return;
+        c.count++;
         if (e.status === "running") c.running++;
         else if (e.status === "blocked") c.blocked++;
         else if (e.status === "err") c.errors++;
