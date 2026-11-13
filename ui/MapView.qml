@@ -16,6 +16,8 @@ Item {
     property color ring: "#1c212b"    // contour rings
     property color disc: "#12151c"    // station and hub fill
     property color discEdge: "#2c3240"
+    property color bg: "#0b0d12"      // window background, for text on red badges
+    property color memory: "#5fb3a6"  // the Memory station's own colour
     property color accent: "#e0a458"  // hub outline, running calls, outbound pulses
     property color alert: "#f7768e"   // failed and blocked calls
     property int windowSetting: 0     // context window from the settings file; 0 = guess
@@ -122,6 +124,9 @@ Item {
         return !context ? "" : (context.stale ? "\u2013" : Math.round(context.share * 100)) + "% of " + sizeLabel(context.size);
     }
     onContextChanged: ring.requestPaint()
+    // a theme switch changes these; everything drawn on a canvas has to be drawn again
+    readonly property string paletteSig: [ink, inkStrong, faint, line, ring, disc, discEdge, accent, alert, memory, bg].join()
+    onPaletteSigChanged: { canvas.requestPaint(); ring.requestPaint(); route.requestPaint(); hands.requestPaint(); orbit.requestPaint(); }
     // changes whenever any station's use count does, so the spokes are redrawn then
     readonly property string wearSig: revision >= 0 && session
         ? Object.keys(session.uses).map(function (k) { return k + session.uses[k]; }).join() : ""
@@ -158,7 +163,6 @@ Item {
         anchors.fill: parent
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
-        Connections { target: root; function onInkChanged() { canvas.requestPaint(); } }
         onPaint: {
             var c = getContext("2d");
             c.reset();
@@ -187,7 +191,7 @@ Item {
                 c.beginPath(); c.arc(p.x, p.y, root.discR, 0, 2 * Math.PI);
                 c.fillStyle = root.disc; c.fill();
                 c.strokeStyle = root.discEdge; c.lineWidth = 1.2; c.stroke();
-                Icons.draw(c, root.stations[i].key, p.x, p.y, root.discR * 1.3, root.ink, 1.4);
+                Icons.draw(c, root.stations[i].key, p.x, p.y, root.discR * 1.3, root.stations[i].key === "memory" ? root.memory : root.ink, 1.4);
             }
             // hub
             c.beginPath(); c.arc(root.cx, root.cy, root.hubR, 0, 2 * Math.PI);
@@ -277,7 +281,7 @@ Item {
             Text {
                 id: badgeText
                 anchors.centerIn: parent
-                text: parent.n; color: "#0b0d12"
+                text: parent.n; color: root.bg
                 font.family: "monospace"; font.bold: true; font.pixelSize: Math.max(8, root.discR * 0.45)
             }
         }

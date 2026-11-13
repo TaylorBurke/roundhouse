@@ -20,7 +20,7 @@ into your Claude Code settings.
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
 | 3 | Window with the static map and live pulses | done, for review |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7), error dots, clock hands and parallel lanes (#8), background tasks and subagents (#9) done; rest next |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7), error dots, clock hands and parallel lanes (#8), background tasks and subagents (#9), theme (#10) done; session switcher next |
 | 5 | Install and uninstall scripts | |
 
 ## How it works
@@ -172,6 +172,24 @@ call is a hint, around sixty is full.
   ever starting, are ignored.
 
 ![Shell kept lit by a background task](docs/background-task.png)
+
+### Theme
+
+![osaka-jade, catppuccin-latte and tokyo-night](docs/themes.png)
+
+The window follows the Omarchy theme: it reads `~/.local/state/omarchy/current/theme/colors.toml`
+(`accent`, `background`, `foreground`, `muted`, `red`, `cyan` for the Memory station,
+`mode`) and mixes the rest of its surfaces and text from background and foreground, so light
+themes work too. Without a theme file it uses a built-in dark palette.
+
+A theme switch replaces files, symlinks, even the folder, which can leave a file watcher
+looking at a deleted file; so the file is watched *and* re-read every two seconds (a few
+hundred bytes). While the file is briefly missing mid-switch the current colours stay.
+
+![tokyo-night, then catppuccin-latte after the theme folder was swapped, still latte while the file was missing, then back](docs/theme-live-switch.png)
+
+To try a theme without switching your desktop, point `ROUNDHOUSE_THEME` at any `colors.toml`:
+`ROUNDHOUSE_THEME=/usr/share/omarchy/themes/catppuccin-latte/colors.toml bin/roundhouse`.
 
 ### Pulses and the feed
 

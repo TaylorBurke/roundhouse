@@ -1,6 +1,7 @@
 // Run with:  QT_QPA_PLATFORM=offscreen qml6 tests/board.test.qml
 import QtQuick
 import "../ui/board.js" as Board
+import "../ui/theme.js" as Theme
 
 QtObject {
     id: root
@@ -254,6 +255,21 @@ QtObject {
         check("background agent is a task", sess(b).stations.agents.running, 1);
         Board.fold(b, ev({ ts: 5, ev: "agent_end", type: "Explore", agent: "a1" }));
         check("its end ends the task", [Board.runningAgents(sess(b)), sess(b).stations.agents.running], [0, 0]);
+
+        // theme: parse colors.toml, derive a palette, fall back when the file is missing or odd
+        var toml = '# a comment\nmode = "dark"\n\naccent = "#509475"\nbackground = "#111c18"\nforeground = "#C1C497"\nbright_foreground = "#F7E8B2"\nmuted = "#53685B"\nred = "#FF5345"\ncyan = "#2DD5B7"\nbroken = nope\n';
+        var parsed = Theme.parseColors(toml);
+        check("toml", [parsed.accent, parsed.mode, parsed.cyan, parsed.broken], ["#509475", "dark", "#2DD5B7", undefined]);
+        var dark = Theme.derive(parsed);
+        check("dark palette", [dark.light, dark.bg, dark.accent, dark.alert, dark.memory, dark.inkStrong, dark.faint], [false, "#111c18", "#509475", "#FF5345", "#2DD5B7", "#F7E8B2", "#53685B"]);
+        check("mix", [Theme.mix("#000000", "#ffffff", 0.5), Theme.mix("#102030", "#102030", 0.7), Theme.mix("#000000", "#ff0000", 1)], ["#808080", "#102030", "#ff0000"]);
+        var lightP = Theme.derive(Theme.parseColors('mode = "light"\nbackground = "#eff1f5"\nforeground = "#4c4f69"\naccent = "#1e66f5"\n'));
+        check("light palette", [lightP.light, lightP.bg, lightP.accent, lightP.alert === Theme.FALLBACK.alert], [true, "#eff1f5", "#1e66f5", true]);
+        check("light ink is darker than its background", Theme.mix(lightP.bg, "#4c4f69", 0.68) === lightP.ink && lightP.ink < lightP.bg, true);
+        check("fallback", Theme.derive({}), Theme.FALLBACK);
+        check("fallback keeps good extras", Theme.derive({ accent: "#123456", red: "#bad" }).accent, "#123456");
+        check("fallback ignores bad extras", Theme.derive({ accent: "#123456", red: "#bad" }).alert, Theme.FALLBACK.alert);
+        check("empty text", Theme.parseColors(null), {});
 
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
