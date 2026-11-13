@@ -126,7 +126,9 @@ Item {
     onContextChanged: ring.requestPaint()
     // a theme switch changes these; everything drawn on a canvas has to be drawn again
     readonly property string paletteSig: [ink, inkStrong, faint, line, ring, disc, discEdge, accent, alert, memory, bg].join()
-    onPaletteSigChanged: { canvas.requestPaint(); ring.requestPaint(); route.requestPaint(); hands.requestPaint(); orbit.requestPaint(); }
+    onPaletteSigChanged: repaintAll()
+    onSessionChanged: repaintAll()           // another session was picked
+    function repaintAll() { canvas.requestPaint(); ring.requestPaint(); route.requestPaint(); hands.requestPaint(); orbit.requestPaint(); }
     // changes whenever any station's use count does, so the spokes are redrawn then
     readonly property string wearSig: revision >= 0 && session
         ? Object.keys(session.uses).map(function (k) { return k + session.uses[k]; }).join() : ""
