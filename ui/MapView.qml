@@ -77,13 +77,15 @@ Item {
     }
     function handle(ev, blocked) {
         var hub = Qt.point(cx, cy), k = ev.ev, i = indexOf(ev.station || (k === "ask" || k === "denied" ? "hooks" : ""));
+        // a subagent's calls leave from the Agents station, not from the hub
+        var origin = ev.agent && ev.station !== "agents" ? pos(indexOf("agents")) : hub;
         if (k === "tool_start" && i >= 0) {
-            dot(hub, pos(i), accent, 420, 0, laneFor(ev.station));
+            dot(origin, pos(i), accent, 420, 0, laneFor(ev.station));
             ripple(pos(i), accent, discR, discR * 1.9, 700, 380);
         } else if (k === "tool_end" && i >= 0) {
             var tint = ev.status === "err" ? alert : ink;
             ripple(pos(i), tint, discR, discR * 1.9, 700);
-            dot(pos(i), hub, tint, 420);
+            dot(pos(i), origin, tint, 420);
         } else if (k === "prompt") {
             var you = pos(indexOf("you")), model = pos(indexOf("model"));
             ripple(you, accent, discR, discR * 1.9, 700);
@@ -293,6 +295,32 @@ Item {
             font.family: "monospace"; font.bold: true; font.pixelSize: Math.max(8, root.discR * 0.5)
             x: root.pos(index).x - root.discR * 1.45 - width / 2 + root.discR * 0.3
             y: root.pos(index).y - root.discR * 0.95
+        }
+    }
+
+    // each running subagent is a small dot circling the Agents station
+    Canvas {
+        id: orbit
+        anchors.fill: parent
+        property bool live: false
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections { target: root; function onRevisionChanged() { orbit.requestPaint(); } }
+        Timer { interval: 40; running: orbit.live; repeat: true; onTriggered: orbit.requestPaint() }
+        onPaint: {
+            var c = getContext("2d");
+            c.reset();
+            var n = Board.runningAgents(root.session);
+            live = n > 0;
+            if (n === 0) return;
+            var p = root.pos(root.indexOf("agents")), t = Date.now() / 1000, t0 = root.accent;
+            c.fillStyle = Qt.rgba(t0.r, t0.g, t0.b, 0.95);
+            for (var k = 0; k < n; k++) {
+                var a = t * 1.9 + k * 2 * Math.PI / n;
+                c.beginPath();
+                c.arc(p.x + Math.cos(a) * root.discR * 1.5, p.y + Math.sin(a) * root.discR * 1.5, 2.6, 0, 2 * Math.PI);
+                c.fill();
+            }
         }
     }
 
