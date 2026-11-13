@@ -166,6 +166,9 @@ What moves and what it means:
 - **The ring round the hub**: how full the context is; grey, amber from 70%, red from 90%; dashed
   with `-%` when the number is unknown (right after a compaction).
 - **A red dot with a count**: errors and refusals since your last prompt. Hooks counts refusals.
+- **Hover a node** (or the hub) for a tooltip: what the station stands for, its counts, and, when it
+  wears a red dot, which calls are behind it, marked failed or refused (a refused call counts at its own
+  station and at Hooks). Call names show on screen only; nothing is written.
 - **A thin curve** joining the last seven stations visited (a leg holds 40 s, then fades), and
   **spokes that thicken** with use.
 - **A dot circling Agents** per running subagent. A background task keeps its station lit after its
