@@ -8,7 +8,9 @@ ShellRoot {
         implicitWidth: 360
         implicitHeight: 680
         visible: true
-        color: "#0b0d12"
+        color: theme.bg
+
+        Theme { id: theme }
 
         Settings { id: settings }
 
@@ -24,6 +26,9 @@ ShellRoot {
             session: tail.active
             revision: tail.revision
             windowSetting: settings.contextWindow
+            bg: theme.bg; disc: theme.disc; discEdge: theme.discEdge; line: theme.line; ring: theme.ring
+            ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
+            accent: theme.accent; alert: theme.alert; memory: theme.memory
         }
 
         Feed {
@@ -31,6 +36,8 @@ ShellRoot {
             clip: true
             session: tail.active
             revision: tail.revision
+            ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
+            accent: theme.accent; alert: theme.alert
         }
     }
 }
