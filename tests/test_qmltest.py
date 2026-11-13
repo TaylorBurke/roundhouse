@@ -1,4 +1,4 @@
-"""Runs the QtTest files (clicks on the session switcher, the session header) under qmltestrunner."""
+"""Runs the QtTest files (clicks on the session switcher, the session header, hover tooltips on the map) under qmltestrunner."""
 import os
 import shutil
 import subprocess
@@ -22,6 +22,9 @@ class QtTestFiles(unittest.TestCase):
 
     def test_header_qml(self):
         self.run_file("header.test.qml")
+
+    def test_tooltip_qml(self):
+        self.run_file("tooltip.test.qml")
 
 
 if __name__ == "__main__":

@@ -240,6 +240,41 @@ QtObject {
         Board.fold(b, ev({ ts: 8, ev: "denied", tool: "Bash" }));
         check("denied without a call", sess(b).errDots.hooks, 2);
 
+        // the tooltip's report: what is behind a red badge, and what the node is
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 2, ev: "tool_end", id: "e1", station: "shell", label: "build it", tool: "Bash", status: "err" }));
+        Board.fold(b, ev({ ts: 3, ev: "tool_start", id: "r1", station: "files", label: "a/b.md", tool: "Edit" }));
+        Board.fold(b, ev({ ts: 3.5, ev: "tool_start", id: "r2", station: "files", label: "c/d.md", tool: "Edit" }));
+        Board.fold(b, ev({ ts: 4, ev: "batch" }));
+        var shellRep = Board.report(sess(b), "shell"), filesRep = Board.report(sess(b), "files"), hooksRep = Board.report(sess(b), "hooks");
+        check("report: shell has one failure", [shellRep.dots, shellRep.problems.length, shellRep.problems[0].kind, shellRep.problems[0].label], [1, 1, "failed", "build it"]);
+        check("report: files shows both refusals, newest first", [filesRep.dots, filesRep.problems.map(function (p) { return p.label; }), filesRep.problems[0].kind], [2, ["c/d.md", "a/b.md"], "refused"]);
+        check("report: hooks lists the same refused calls once each", [hooksRep.dots, hooksRep.problems.length, hooksRep.problems[0].station], [2, 2, "files"]);
+        check("report: files explains refusals and Hooks", filesRep.explain.indexOf("refused") >= 0 && filesRep.explain.indexOf("Hooks") >= 0, true);
+        check("report: hooks explains denials", hooksRep.explain.indexOf("refused or denied") >= 0, true);
+        check("report: every node says what it is", Board.STATIONS.every(function (k) { return Board.report(sess(b), k).help.length > 0; }), true);
+        check("report: a denial with no call is listed from the note", (function () {
+            Board.fold(b, ev({ ts: 5, ev: "prompt" }));
+            Board.fold(b, ev({ ts: 6, ev: "denied", tool: "Bash" }));
+            var r = Board.report(sess(b), "hooks");
+            return [r.dots, r.problems.length];
+        })(), [1, 1]);
+        check("report: the next prompt clears the badge and the list", (function () {
+            Board.fold(b, ev({ ts: 7, ev: "prompt" }));
+            var r = Board.report(sess(b), "hooks");
+            return [r.dots, r.problems.length, r.explain];
+        })(), [0, 0, ""]);
+        check("report: a late end of an old refusal leaves the new count alone", (function () {
+            var c = Board.newBoard();
+            Board.fold(c, ev({ ts: 1, ev: "tool_start", id: "x", station: "files", label: "f", tool: "Edit" }));
+            Board.fold(c, ev({ ts: 2, ev: "batch" }));
+            Board.fold(c, ev({ ts: 3, ev: "prompt" }));
+            Board.fold(c, ev({ ts: 4, ev: "tool_end", id: "y", station: "files", label: "g", tool: "Edit", status: "err" }));
+            Board.fold(c, ev({ ts: 4.1, ev: "tool_end", id: "x", station: "files", label: "f", tool: "Edit", status: "ok" }));
+            return sess(c).errDots.files;
+        })(), 1);
+
         // clock hands need the oldest running start per station
         b = Board.newBoard();
         Board.fold(b, ev({ ts: 10, ev: "tool_start", id: "a", station: "files", label: "x", tool: "Read" }));
