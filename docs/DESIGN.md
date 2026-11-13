@@ -1,7 +1,8 @@
 # Design
 
-Written at stage 1, updated with what stage 2 measured. Checked against the Claude Code
-hooks reference and Claude Code 2.1.322.
+Written at stage 1 and updated as each stage measured or built something. Checked against the
+Claude Code hooks reference and Claude Code 2.1.322. Where a decision was later changed, the
+section says so.
 
 ## Pieces
 
@@ -11,7 +12,11 @@ hooks reference and Claude Code 2.1.322.
 2. **Log**: `$XDG_RUNTIME_DIR/lot-map/events.jsonl`. Append-only, mode 0600 in a 0700
    folder, cut back in place to its newest 500 lines when it passes 1 MB. Every writer
    takes an exclusive lock, so a cut never loses or splits a line.
-3. **Renderer** (stage 3): a Quickshell `FloatingWindow` that tails the log.
+3. **Window service** (`ui/`, run by `bin/roundhouse`): one Quickshell process that tails the log
+   and runs a window per entry of `windows.json` (see "Windows").
+4. **Optional readers and tools**: `tools/strip_state.py` (what claude-strip knows about a
+   session), `tools/windows.py` (the window set), `tools/replay.py` (play a recorded log back, for
+   development), `tools/setup.py` (install and uninstall).
 
 A file was chosen over a socket because it works while the window is closed and can be
 followed with any tool.
@@ -94,8 +99,9 @@ A real `claude -p` session with the hooks attached showed:
 - A failing command arrives as `PostToolUseFailure` with `duration_ms`.
 - A call that needs permission and is not granted gives `tool_start`, then `ask`
   (`PermissionRequest` has no `tool_use_id`), then `batch`, and no `tool_end`. So the
-  renderer marks a call blocked when a `batch` or `stop` arrives while it is still open
-  and it is not a background task.
+  renderer marks a call blocked when a `batch` or `stop` arrives while it is still open.
+  (Background calls were first exempt; stage 2b showed they end within milliseconds, so they are
+  judged like any other.)
 - `SessionStart` may omit `model`; the first `context` event supplies it.
 
 ## Measured in stage 2b (interactive session)
@@ -147,10 +153,60 @@ and a `FloatingWindow` closed by the compositor reports it as `visible` becoming
 
 ## Renderer choice
 
-Quickshell: already installed, no build step, QML drawing, and the theme can be followed
-by watching `~/.local/state/omarchy/current/theme/colors.toml`. Risk: Quickshell windows
-may share one app id, so the Hyprland rule would match on title. If that proves flaky,
-the same QML moves into a small Qt Quick app with its own app id. A Chrome `--app` page
-was rejected as heavy and unable to follow the theme.
+Quickshell: already installed, no build step, QML drawing, and the theme is followed by watching
+`~/.local/state/omarchy/current/theme/colors.toml`. The feared risk, that Quickshell windows share
+one app id, is real (`org.quickshell` for all of them) but harmless: the Hyprland rules match on
+the title, which is `roundhouse` for the all-sessions window and `roundhouse: <name>` for the
+others. So the fallback (the same QML in a small Qt Quick app with its own app id) was never
+needed. A Chrome `--app` page was rejected as heavy and unable to follow the theme.
 
-Hyprland on this system is configured in Lua, so the window rule ships as a Lua snippet.
+Hyprland on this system is configured in Lua, so the window rules ship as a Lua snippet
+(`hypr/roundhouse.lua`), added by the installer only if you say yes.
+
+## Theme and settings
+
+`ui/theme.js` turns an Omarchy `colors.toml` into the palette. Surfaces and text are mixed from
+`background` and `foreground`, so a light theme (dark text on a light background) comes out right
+with the same recipe; `accent`, `red`, `cyan` (Memory), `muted` and `bright_foreground` are used
+when valid, and a built-in dark palette covers a missing file. A theme switch replaces files,
+symlinks, even the folder, which can leave a file watcher on a deleted file, so the file is watched
+and also re-read every two seconds; while it is briefly missing the current colours stay.
+`~/.config/roundhouse/config.json` holds the context window size (`ui/Settings.qml`).
+
+## The session header and claude-strip
+
+A window for one session shows the same text as that session's claude-strip so the two are easy
+to pair. The strip's state file is keyed by the Claude process id and roundhouse's log by session
+id, so the join key is the session id: the strip's mod writes `sessionId` (`$.session.id()`, read
+again on every write because a `/clear` swaps it without a `session.start`), and
+`tools/strip_state.py` matches its first 8 characters to roundhouse's `sid` and, by walking up
+from the pid, to the terminal's Hyprland window (a click on the header focuses it). The strip's
+side is a small optional icon that runs `roundhouse toggle`, and `roundhouse rebind` after a
+`/clear`; it is inert without roundhouse, and roundhouse is inert without it.
+
+The task title is a Haiku summary of the session's prompts, so it is content-derived. That is
+the one place the "names only" rule bends, by the owner's decision: it is shown on screen, read
+from the strip's file, and never written to the log; the emitter is unchanged.
+
+## The installer
+
+`tools/setup.py` (through `install.sh` and `uninstall.sh`) does three things and nothing else, each
+shown as a diff, confirmed and backed up first: one async command hook per event in the Claude Code
+`settings.json` (17, appended after the user's own, matched for removal on the emitter's path),
+the `~/.local/bin/roundhouse` link, and an optional Hyprland line (its own question, default no;
+reloaded and checked with `hyprctl configerrors`, the backup restored on error). It preserves the
+settings file's indentation, trailing newline and mode, so an install followed by an uninstall
+returns the identical bytes (tested, and checked on a copy of the real file). The list of events is
+tested against what the emitter handles.
+
+## Limits and what was left out
+
+- **No step counter, no per-request Model pulse:** no hook fires per model request.
+- **The context window size is a setting or a guess**, never read: no hook carries it.
+- **A refusal is inferred**, not seen: a call still open at the next batch or stop was refused.
+- **Compaction leaves the context reading unknown** until the next one (the transcript still holds
+  the old numbers), shown as a dashed ring with `-%`.
+- **Hyprland only.** The window rules, focusing a terminal and the strip join all use `hyprctl`.
+- **Not tested with a real pointer on a real Wayland surface** (no input injection was available):
+  clicks are tested through Qt's input system, keys with `wtype`.
+- **The hub's name and the layout are not configurable**: ten fixed stations, one name.

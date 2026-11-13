@@ -10,18 +10,21 @@ Code plugin that draws this map in the desktop app. In a terminal session that p
 shows only its text feed; this project gets the picture on screen anyway, fed by
 ordinary Claude Code hooks. The code here is written fresh.
 
-**Status: stage 4 of 5 done.** The hook emitter, a terminal log viewer and a floating window
-work: the map pulses as Claude Code works, with a context ring, route line, error dots,
-background tasks, subagents, the Omarchy theme and a session switcher. Only the install and
-uninstall scripts (stage 5) are left; nothing is installed into your Claude Code settings yet.
+![the map pulsing as a recorded Claude Code session is replayed into it](docs/pulses.gif)
+
+**Quick start:** `./install.sh --dry-run` shows what installing would change (nothing is changed),
+`./install.sh` does it after asking, then `roundhouse` opens the window. Details under
+[Install](#install); everything it touches is listed there, and so is how to remove it.
+
+**Status: complete.** All five stages are built and tested; see the table.
 
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
-| 3 | Window with the static map and live pulses | done, for review |
+| 3 | Window with the static map and live pulses | done |
 | 4 | Context ring, route line, error dots, background tasks, subagents, theme, session switcher | done |
-| 5 | Install and uninstall scripts | next |
+| 5 | Per-session windows, the claude-strip link, install and uninstall | done |
 
 ## How it works
 
@@ -33,7 +36,7 @@ Claude Code hook  ->  hooks/emit.py  ->  $XDG_RUNTIME_DIR/lot-map/events.jsonl  
 it to the log. The log lives on tmpfs, is readable only by you, and is cut back to its
 newest 500 lines when it passes 1 MB.
 
-## What is recorded
+## Privacy: what is recorded
 
 Names only, never content:
 
@@ -49,7 +52,12 @@ Names only, never content:
 Prompts, command lines, file contents, tool output and memory text are never written.
 Control characters are stripped from every label. The emitter makes no network calls,
 starts no processes, prints nothing and always exits 0, and the hooks are registered as
-`async`, so they cannot hold up or alter a tool call.
+`async`, so they cannot hold up or alter a tool call. Nothing in roundhouse uses the network.
+The log is on tmpfs, readable only by you, and gone at logout.
+
+One exception to "names only", and only on screen: if you use claude-strip, a session's window
+shows the strip's task title (a summary of your prompts; see "The session header"). It is read
+from the strip's own file, shown, and never written to roundhouse's log.
 
 ## Install
 
@@ -132,6 +140,52 @@ claude --settings /tmp/roundhouse-hooks.json
 To undo: close that session and delete `/tmp/roundhouse-hooks.json`. The log disappears
 at logout, or remove it with `rm -r "$XDG_RUNTIME_DIR/lot-map"`.
 
+## Reading the map
+
+Ten stations, You at the top and the rest clockwise. A call lights the station its tool belongs to:
+
+| Station | Lights up for |
+| --- | --- |
+| You | your prompts, questions to you, notifications, a finished answer |
+| Model | the steps between tool batches, a compaction, a model change |
+| Memory | the memory folder, the `memory` MCP server |
+| Files | Read, Write, Edit, Grep, Glob, shell lines made only of file commands |
+| Shell | every other shell command, Monitor |
+| Network | web fetches and searches, MCP servers, `curl`, `gh`, `git push`, `npm install` and the like |
+| Browser | the browser MCP servers (Chrome, DevTools, Playwright, Puppeteer) |
+| Agents | subagents and teammates |
+| Skills | skills and loading tools |
+| Hooks | permission prompts, denials, and calls that were refused |
+
+What moves and what it means:
+
+- **A dot along a spoke**: a call starting (out from the hub) or finishing (back; red if it failed).
+  Calls that start together fly in side-by-side lanes.
+- **A ripple at a station**, and a **steady glow with two clock hands** while something runs there
+  (the long hand makes a lap a minute, the short one a lap in ten). `x3` means three at once.
+- **The ring round the hub**: how full the context is; grey, amber from 70%, red from 90%; dashed
+  with `-%` when the number is unknown (right after a compaction).
+- **A red dot with a count**: errors and refusals since your last prompt. Hooks counts refusals.
+- **A thin curve** joining the last seven stations visited (a leg holds 40 s, then fades), and
+  **spokes that thicken** with use.
+- **A dot circling Agents** per running subagent. A background task keeps its station lit after its
+  own turn is over.
+- **A wide ring from the hub**: an answer finished. **Rings at the hub and Model**: a model change.
+- **The feed** under the map: `●` running, `·` done, `✕` failed or blocked; finished rows at one
+  station fold into one with `+N`.
+
+## Options
+
+| What | How | Default |
+| --- | --- | --- |
+| Context window size | `~/.config/roundhouse/config.json`: `{"contextWindow": "1m"}` (a number, `"200k"`, `"1m"` or `"auto"`); watched, no restart | guessed from the model name, else 200k |
+| Colours | follows the Omarchy theme; `ROUNDHOUSE_THEME=/path/to/colors.toml` tries another | the current theme |
+| Window size, always on top | edit `hypr/roundhouse.lua` (`size`, `pin`) | 360x680; the all-sessions window pinned, session windows not |
+| Keys in the all-sessions window | `[` `]` or arrows step, space lists, `1`-`9` pick, `a` auto, `w` pop out, escape | |
+| Where the log lives | `LOT_MAP_DIR` (read by both the emitter and the window) | `$XDG_RUNTIME_DIR/lot-map` |
+
+Not configurable, on purpose: the hub's name and the layout (ten fixed stations).
+
 ## The window
 
 ```bash
@@ -159,8 +213,8 @@ starts it when something is to be shown, and it ends by itself when nothing is.
 - The session id is the first 8 characters of Claude Code's, as `roundhouse list` shows.
 
 Quickshell windows all report the app id `org.quickshell`, so the Hyprland rules match on the
-title. To float and size them (and pin the all-sessions one), add this line to
-`~/.config/hypr/hyprland.lua` (remove it to undo):
+title. To float and size them (and pin the all-sessions one), let `./install.sh` add this line to
+`~/.config/hypr/hyprland.lua` when it asks (or add it yourself; remove it to undo):
 
 ```lua
 dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")
@@ -181,8 +235,8 @@ the log back (the replayed lines are recognised and skipped).
 The map (`ui/MapView.qml`, icons in `ui/icons.js`) is drawn on a Canvas from the window's size,
 so it scales: ten stations on an ellipse with You at the top and the rest clockwise, a spoke
 to each, dashed contour rings, an icon and label per station with the number of recent calls
-under it, and the model name in the hub. Colours are properties on `MapView`, ready for the
-theme work. Icons are original line drawings.
+under it, and the model name in the hub. Colours come from the Omarchy theme (see "Theme"). Icons
+are original line drawings.
 
 ### The session header
 
@@ -360,13 +414,29 @@ bin/lot-map-log -s 7c8862de  one session only
 
 ## Requirements
 
-Python 3 (standard library only); `quickshell` for the window; `qml6` and `qmltestrunner` (both in qt6-declarative) to run the tests. Claude Code 2.1.295 or later is recommended.
+- Linux with Hyprland and `quickshell` (Omarchy has both); Python 3 (standard library only).
+- Claude Code 2.1.295 or later is recommended (the hook events used are listed in `docs/DESIGN.md`).
+- Optional: [claude-strip](https://github.com/TaylorBurke/claude-strip) 0.4 or later, for the
+  session header and the map icon.
+- To run the tests: `qml6` and `qmltestrunner` (both in `qt6-declarative`).
 
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests   # includes tests/board.test.qml, run under qml6
+python3 -m unittest discover -s tests
 ```
+
+Covers the emitter, the board logic and the theme (QML run under `qml6`),
+the switcher and session header (clicks through Qt's input system, under `qmltestrunner`), the window
+list, the strip reader, and the installer (including an exact install-then-uninstall round trip).
+The terminal log viewer (`bin/lot-map-log`) has no tests of its own. A real mouse on a real Wayland window is not covered: the clicks are tested in Qt, the rest of the
+window by hand with scripted events.
+
+## Credit
+
+The idea and the look are from [lot-map](https://github.com/alexeyw/lot-map) by alexeyw (MIT), a
+Claude Code plugin that draws this map in the desktop app. roundhouse is a separate project for
+Linux terminals, fed by ordinary Claude Code hooks; its code and icons are written fresh.
 
 ## License
 
