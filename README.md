@@ -80,26 +80,46 @@ at logout, or remove it with `rm -r "$XDG_RUNTIME_DIR/lot-map"`.
 ## The window
 
 ```bash
-bin/roundhouse    # opens the window; closing it ends the process
+roundhouse                       # the all-sessions window (same as: roundhouse show)
+roundhouse toggle ab12cd34       # a window for one session, shown or hidden
+roundhouse show|hide [SID]
+roundhouse rebind OLD NEW        # a window moves to the session that replaces its own (after /clear)
+roundhouse list                  # the sessions in the log, and which have a window
 ```
 
-Quickshell windows all report the app id `org.quickshell`, so the Hyprland rule matches on
-the title `roundhouse` as well. To float, size (360x680) and pin it, add this line to
+(`bin/roundhouse`; put it on your PATH if you like.) The windows that are shown are listed in
+`$XDG_RUNTIME_DIR/lot-map/windows.json`. One background process runs them all: the command
+starts it when something is to be shown, and it ends by itself when nothing is.
+
+![an all-sessions window and two windows fixed to their sessions](docs/session-windows.png)
+
+- **The all-sessions window** has the switcher and follows whichever session is most recently
+  active (see "Several sessions"). It floats on every workspace. In it, `w` opens the session
+  on show in a window of its own.
+- **A window for one session** is fixed to it (no switcher), is titled `roundhouse: <folder>`,
+  and is **not** pinned: it opens on the workspace you are on and stays there, so switching
+  workspace hides it. It closes itself when its session ends. A `/clear` is not an end: the
+  session id changes, and `roundhouse rebind OLD NEW` moves the window to the new one, in
+  place. Closing a window with the window manager takes it out of the set.
+- The session id is the first 8 characters of Claude Code's, as `roundhouse list` shows.
+
+Quickshell windows all report the app id `org.quickshell`, so the Hyprland rules match on the
+title. To float and size them (and pin the all-sessions one), add this line to
 `~/.config/hypr/hyprland.lua` (remove it to undo):
 
 ```lua
 dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")
 ```
 
-To try the rule for one session without editing anything:
+To try the rules for one session without editing anything:
 `hyprctl eval 'dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")'`.
 Requires `quickshell`.
 
-The window tails the log with `tail -F` and folds each line into a board per session
-(`ui/board.js`): calls are paired by id, a call still open at the next `batch` or `stop`
-is marked blocked (background calls are not), the newest 80 entries are kept, and the most
-recently active session is shown. It copes with a log that does not exist yet and with the
-emitter cutting the log back (the replayed lines are recognised and skipped).
+The windows tail the log with `tail -F` (one tail, shared) and fold each line into a board per
+session (`ui/board.js`): calls are paired by id, a call still open at the next `batch` or `stop`
+is marked blocked (background calls too), the newest 80 entries are kept, and each window
+shows its session. It copes with a log that does not exist yet and with the emitter cutting
+the log back (the replayed lines are recognised and skipped).
 
 ![the resting map](docs/map-resting.png)
 

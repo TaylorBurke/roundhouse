@@ -20,7 +20,7 @@ function newSession(sid) {
     var stations = {};
     STATIONS.forEach(function (s) { stations[s] = { count: 0, running: 0, blocked: 0, errors: 0 }; });
     return {
-        sid: sid, dir: "", model: "", tokens: 0, firstTs: 0, lastTs: 0, ended: false,
+        sid: sid, dir: "", model: "", tokens: 0, firstTs: 0, lastTs: 0, ended: false, endReason: "",
         hasContext: false,        // a context reading has arrived
         tokensStale: false,       // a compaction since the last reading: the number is out of date
         switched: false,          // a model event since the last prompt: context's model name is stale
@@ -160,8 +160,10 @@ function fold(board, ev) {
         if (ev.dir) sess.dir = ev.dir;
         if (ev.model && !sess.model) sess.model = ev.model;
         sess.ended = false;
+        sess.endReason = "";
     } else if (kind === "session_end") {
         sess.ended = true;
+        sess.endReason = ev.reason || "";
     } else if (kind === "tool_start") {
         applyTool(sess, ev, false);
     } else if (kind === "tool_end") {
