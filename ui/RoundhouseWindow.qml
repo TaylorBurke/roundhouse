@@ -68,10 +68,32 @@ FloatingWindow {
         }
     }
 
+    // A session's own window: a band at the very top with the strip's text, so it is plain which
+    // terminal it belongs to. A click focuses the terminal. The address was checked by the reader
+    // and is checked again here, so nothing but a window address can reach the command.
+    StripHeader {
+        id: head
+        z: 10
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        visible: !win.all
+        height: visible ? implicitHeight : 0
+        info: win.strip
+        name: win.name
+        model: win.session ? win.session.model : ""
+        ended: win.session ? win.session.ended : false
+        band: Qt.darker(theme.bg, 1.35)
+        ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert
+        onActivate: {
+            var a = win.strip ? win.strip.address : "";
+            if (/^0x[0-9a-f]{1,16}$/.test(a))
+                Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
+        }
+    }
+
     MapView {
         id: map
-        anchors { left: parent.left; right: parent.right; top: parent.top }
-        height: Math.min(parent.width, parent.height * 0.6)
+        anchors { left: parent.left; right: parent.right; top: head.bottom }
+        height: Math.min(parent.width, (parent.height - head.height) * 0.6)
         session: win.session
         revision: win.tail.revision
         windowSetting: win.settings.contextWindow
@@ -83,7 +105,7 @@ FloatingWindow {
     Item {
         id: bar
         z: 10
-        height: 24
+        height: win.all ? 24 : 0
         anchors { left: parent.left; right: parent.right; top: map.bottom; leftMargin: 12; rightMargin: 12; topMargin: 2 }
 
         SessionSwitcher {
@@ -99,24 +121,6 @@ FloatingWindow {
             onPick: sid => win.pinned = sid
             onFollow: win.pinned = ""
             onCycle: dir => win.cycle(dir)
-        }
-
-        // A session's own window: the strip's text, so it is plain which terminal it belongs to
-        StripHeader {
-            anchors.fill: parent
-            visible: !win.all
-            info: win.strip
-            name: win.name
-            model: win.session ? win.session.model : ""
-            ended: win.session ? win.session.ended : false
-            ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert
-            // A click focuses the terminal. The address was checked by the reader and is checked
-            // again here, so nothing but a window address can reach the command.
-            onActivate: {
-                var a = win.strip ? win.strip.address : "";
-                if (/^0x[0-9a-f]{1,16}$/.test(a))
-                    Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
-            }
         }
     }
 
