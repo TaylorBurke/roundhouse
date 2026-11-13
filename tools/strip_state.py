@@ -5,7 +5,7 @@ Prints one JSON object: {"ab12cd34": {"project", "task", "phase", "running", "co
 "pid", "address"}, ...}. Optional and read-only: it reads the strip's own state files
 ($XDG_RUNTIME_DIR/claude-strip/<pid>.json, or $CLAUDE_STRIP_DIR) and writes nothing.
 
-A file is used when it has a `sessionId` (written by the session-strip mod from 0.4 on), its
+A file is used when it has a `sessionId` (written by the session-strip mod that ships with claude-strip 0.4), its
 process is alive, and its session has not ended. The key is the first 8 characters of the
 session id, as in roundhouse's log. `address` is the Hyprland window of the terminal the
 session runs in (found by walking up from `pid`), or null; it is for focusing that window.
