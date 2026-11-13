@@ -192,6 +192,37 @@ QtObject {
         for (i = 0; i < 80; i++) Board.fold(b, ev({ ts: 1 + i, ev: "tool_end", id: "w" + i, station: "files", label: "x", tool: "T", status: "ok" }));
         check("wear caps", Board.wear(sess(b), "files"), 1);
 
+        // red dots: a failure marks its station; a refusal marks its station and Hooks; a late end
+        // undoes a refusal; the next prompt clears them
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "tool_end", id: "e1", station: "shell", label: "x", tool: "Bash", status: "err" }));
+        Board.fold(b, ev({ ts: 2, ev: "tool_end", id: "e2", station: "shell", label: "x", tool: "Bash", status: "err" }));
+        check("err dots", sess(b).errDots, { shell: 2 });
+        Board.fold(b, ev({ ts: 3, ev: "tool_start", id: "r1", station: "files", label: "f", tool: "Edit" }));
+        Board.fold(b, ev({ ts: 4, ev: "batch" }));
+        check("refusal dots", sess(b).errDots, { shell: 2, files: 1, hooks: 1 });
+        Board.fold(b, ev({ ts: 4, ev: "batch" }));
+        check("same batch twice", sess(b).errDots.hooks, 1);
+        Board.fold(b, ev({ ts: 4.01, ev: "tool_end", id: "r1", station: "files", label: "f", tool: "Edit", status: "ok" }));
+        check("late end undoes", sess(b).errDots, { shell: 2, files: 0, hooks: 0 });
+        Board.fold(b, ev({ ts: 5, ev: "prompt" }));
+        check("prompt clears", sess(b).errDots, {});
+        Board.fold(b, ev({ ts: 6, ev: "tool_start", id: "d1", station: "shell", label: "x", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 6.1, ev: "denied", id: "d1", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 7, ev: "batch" }));
+        check("denied counted once", sess(b).errDots, { shell: 1, hooks: 1 });
+        Board.fold(b, ev({ ts: 8, ev: "denied", tool: "Bash" }));
+        check("denied without a call", sess(b).errDots.hooks, 2);
+
+        // clock hands need the oldest running start per station
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 10, ev: "tool_start", id: "a", station: "files", label: "x", tool: "Read" }));
+        Board.fold(b, ev({ ts: 12, ev: "tool_start", id: "b", station: "files", label: "y", tool: "Read" }));
+        Board.fold(b, ev({ ts: 13, ev: "tool_start", id: "c", station: "shell", label: "z", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 14, ev: "tool_end", id: "c", station: "shell", label: "z", tool: "Bash", status: "ok" }));
+        check("running info", Board.runningInfo(sess(b)), { files: { n: 2, since: 10 } });
+        check("running info null", Board.runningInfo(null), {});
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }

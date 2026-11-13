@@ -24,6 +24,7 @@ function newSession(sid) {
         tokensStale: false,       // a compaction since the last reading: the number is out of date
         switched: false,          // a model event since the last prompt: context's model name is stale
         stations: stations,
+        errDots: {},              // station -> errors and refusals since the last prompt (the red dot)
         uses: {},                 // station -> every call seen there this session (wears the spoke)
         route: [],                // stations the main loop visited, newest last: { station, ts }
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
@@ -81,11 +82,21 @@ function recount(sess) {
 // their own events.
 function closeOpen(sess, ev) {
     sess.entries.forEach(function (e) {
-        if (e.status === "running" && e.id && e.ts <= ev.ts && (e.agent || null) === (ev.agent || null)) {
-            e.status = "blocked";
-            sess.newlyBlocked.push({ station: e.station, label: e.label });
-        }
+        if (e.status === "running" && e.id && e.ts <= ev.ts && (e.agent || null) === (ev.agent || null)) blockEntry(sess, e);
     });
+}
+
+// Red dots: a failed call marks its station, a refused one marks its station and Hooks.
+function dot(sess, station, delta) {
+    sess.errDots[station] = Math.max(0, (sess.errDots[station] || 0) + delta);
+}
+
+function blockEntry(sess, e) {
+    e.status = "blocked";
+    e.dotted = "block";
+    dot(sess, e.station, 1);
+    dot(sess, "hooks", 1);
+    sess.newlyBlocked.push({ station: e.station, label: e.label });
 }
 
 // The route line follows the main loop only: subagent calls are left out, and so are
@@ -114,7 +125,16 @@ function applyTool(sess, ev, ending) {
         return;                       // an end that landed first keeps its result
     }
     if (ev.ms !== undefined) entry.ms = ev.ms;
+    if (entry.dotted === "block") {        // a late end: it was not refused after all
+        dot(sess, entry.station, -1);
+        dot(sess, "hooks", -1);
+        entry.dotted = null;
+    }
     entry.status = ev.status === "err" ? "err" : "ok";   // also frees an entry wrongly marked blocked
+    if (entry.status === "err" && !entry.dotted) {
+        entry.dotted = "err";
+        dot(sess, entry.station, 1);
+    }
     entry.interrupt = !!ev.interrupt;
     if (ev.task) {
         entry.task = ev.task;
@@ -143,6 +163,7 @@ function fold(board, ev) {
         applyTool(sess, ev, true);
     } else if (kind === "prompt") {
         sess.switched = false;
+        sess.errDots = {};
         note(sess, ev, "you", "new message");
     } else if (kind === "task_end") {
         var task = sess.tasks[ev.task];
@@ -160,10 +181,8 @@ function fold(board, ev) {
         note(sess, ev, "hooks", "asked permission: " + (ev.tool || ""));
     } else if (kind === "denied") {
         var denied = ev.id ? sess.byId[ev.id] : null;
-        if (denied && denied.status === "running") {
-            denied.status = "blocked";
-            sess.newlyBlocked.push({ station: denied.station, label: denied.label });
-        }
+        if (denied && denied.status === "running") blockEntry(sess, denied);
+        else if (!denied) dot(sess, "hooks", 1);
         note(sess, ev, "hooks", "denied: " + (ev.tool || ""), "err");
     } else if (kind === "agent_start") {
         sess.agents[ev.agent] = { type: ev.type, running: true };
@@ -244,6 +263,19 @@ function wear(sess, station) {
     return Math.min(1, Math.log(1 + n) / Math.log(61));
 }
 
+// Stations with a call running: { station: { n, since } }, `since` the start of the oldest.
+function runningInfo(sess) {
+    var info = {};
+    if (!sess) return info;
+    sess.entries.forEach(function (e) {
+        if (e.status !== "running") return;
+        var r = info[e.station] || (info[e.station] = { n: 0, since: e.ts });
+        r.n++;
+        if (e.ts < r.since) r.since = e.ts;
+    });
+    return info;
+}
+
 function compacting(sess) {
     return !!sess && sess.entries.some(function (e) { return e.station === "model" && e.label === "compacting" && e.status === "running"; });
 }
@@ -280,4 +312,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

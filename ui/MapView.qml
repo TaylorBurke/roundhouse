@@ -45,6 +45,9 @@ Item {
     function runningOf(key) {
         return revision >= 0 && session ? session.stations[key].running : 0;
     }
+    function errOf(key) {
+        return revision >= 0 && session ? (session.errDots[key] || 0) : 0;
+    }
     function indexOf(key) {
         for (var i = 0; i < stations.length; i++) if (stations[i].key === key) return i;
         return -1;
@@ -53,8 +56,21 @@ Item {
     // ---- pulses ---------------------------------------------------------------------------
     // handle() is fed each live event. A call starting sends a dot out along its spoke; the
     // call ending sends one back (red if it failed). Ripples mark the station.
-    function dot(from, to, tint, ms, delay) {
-        dotC.createObject(overlay, { p0: from, p1: to, tint: tint, ms: ms, delay: delay || 0 });
+    function dot(from, to, tint, ms, delay, lane) {
+        var dx = to.x - from.x, dy = to.y - from.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+        var off = laneOffset(lane || 0), ox = -dy / d * off, oy = dx / d * off;   // sideways, off the spoke
+        dotC.createObject(overlay, { p0: Qt.point(from.x + ox, from.y + oy), p1: Qt.point(to.x + ox, to.y + oy),
+                                     tint: tint, ms: ms, delay: delay || 0 });
+    }
+    // lanes: 0, +1, -1, +2, -2 ... times 6 px
+    function laneOffset(n) { return (n % 2 ? (n + 1) / 2 : -n / 2) * 6; }
+    property var recentStarts: ({})   // station -> { n, t }: starts in the last 0.4 s
+    function laneFor(key) {
+        var now = Date.now(), r = recentStarts[key];
+        if (!r || now - r.t > 400) r = { n: 0, t: now };
+        var lane = r.n;
+        recentStarts[key] = { n: lane + 1, t: now };
+        return lane;
     }
     function ripple(at, tint, r0, r1, ms, delay) {
         rippleC.createObject(overlay, { cx0: at.x, cy0: at.y, tint: tint, r0: r0, r1: r1, ms: ms, delay: delay || 0 });
@@ -62,7 +78,7 @@ Item {
     function handle(ev, blocked) {
         var hub = Qt.point(cx, cy), k = ev.ev, i = indexOf(ev.station || (k === "ask" || k === "denied" ? "hooks" : ""));
         if (k === "tool_start" && i >= 0) {
-            dot(hub, pos(i), accent, 420);
+            dot(hub, pos(i), accent, 420, 0, laneFor(ev.station));
             ripple(pos(i), accent, discR, discR * 1.9, 700, 380);
         } else if (k === "tool_end" && i >= 0) {
             var tint = ev.status === "err" ? alert : ink;
@@ -244,6 +260,73 @@ Item {
     }
 
     Item { id: overlay; anchors.fill: parent }
+
+    // red dot with a count on a station after an error or a refusal, until the next prompt
+    Repeater {
+        model: root.stations
+        Rectangle {
+            required property int index
+            required property var modelData
+            readonly property int n: root.errOf(modelData.key)
+            visible: n > 0
+            width: Math.max(root.discR * 0.62, badgeText.implicitWidth + 6); height: root.discR * 0.62; radius: height / 2
+            x: root.pos(index).x + root.discR * 0.62; y: root.pos(index).y - root.discR * 0.95
+            color: root.alert
+            Text {
+                id: badgeText
+                anchors.centerIn: parent
+                text: parent.n; color: "#0b0d12"
+                font.family: "monospace"; font.bold: true; font.pixelSize: Math.max(8, root.discR * 0.45)
+            }
+        }
+    }
+
+    // "x3": three calls running at once at a station
+    Repeater {
+        model: root.stations
+        Text {
+            required property int index
+            required property var modelData
+            readonly property int n: root.runningOf(modelData.key)
+            visible: n >= 2
+            text: "x" + n; color: root.accent
+            font.family: "monospace"; font.bold: true; font.pixelSize: Math.max(8, root.discR * 0.5)
+            x: root.pos(index).x - root.discR * 1.45 - width / 2 + root.discR * 0.3
+            y: root.pos(index).y - root.discR * 0.95
+        }
+    }
+
+    // clock hands around a station while a call runs: the long one makes a lap a minute, the
+    // short one a lap in ten minutes, both from the start of the oldest running call
+    Canvas {
+        id: hands
+        anchors.fill: parent
+        property bool live: false
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections { target: root; function onRevisionChanged() { hands.requestPaint(); } }
+        Timer { interval: 250; running: hands.live; repeat: true; onTriggered: hands.requestPaint() }
+        onPaint: {
+            var c = getContext("2d");
+            c.reset();
+            var info = Board.runningInfo(root.session), now = Date.now() / 1000, any = false;
+            var t = root.accent;
+            for (var i = 0; i < 10; i++) {
+                var r = info[root.stations[i].key];
+                if (!r) continue;
+                any = true;
+                var p = root.pos(i), el = Math.max(0, now - r.since), rr = root.discR + 5;
+                c.strokeStyle = Qt.rgba(t.r, t.g, t.b, 0.28); c.lineWidth = 1;
+                c.beginPath(); c.arc(p.x, p.y, rr, 0, 2 * Math.PI); c.stroke();
+                [[(el / 60) % 1, 8, 1.6, 0.95], [(el / 600) % 1, 5, 2.2, 0.6]].forEach(function (h) {
+                    var a = -Math.PI / 2 + 2 * Math.PI * h[0], cs = Math.cos(a), sn = Math.sin(a);
+                    c.strokeStyle = Qt.rgba(t.r, t.g, t.b, h[3]); c.lineWidth = h[2]; c.lineCap = "round";
+                    c.beginPath(); c.moveTo(p.x + cs * (rr - h[1]), p.y + sn * (rr - h[1])); c.lineTo(p.x + cs * (rr + 1), p.y + sn * (rr + 1)); c.stroke();
+                });
+            }
+            live = any;
+        }
+    }
 
     Component {
         id: dotC
