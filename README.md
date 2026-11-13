@@ -20,7 +20,7 @@ into your Claude Code settings.
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
 | 3 | Window with the static map and live pulses | done, for review |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7) done; rest next |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7), error dots, clock hands and parallel lanes (#8) done; rest next |
 | 5 | Install and uninstall scripts | |
 
 ## How it works
@@ -144,6 +144,21 @@ seconds, then fades over 20. Spokes grow thicker and brighter with use, on a log
 call is a hint, around sixty is full.
 
 ![legs at 2 s, 45 s, 55 s and 62 s; Files, Shell and Network spokes worn by use](docs/route-fade.png)
+
+### Error dots, clock hands and parallel calls
+
+![red dots with counts, clock hands on Shell, x3 on Files](docs/dots-hands.png)
+
+- A failed call puts a red dot with a count on its station. A refused call (a hook said no, or
+  you did not grant it) marks its station and also Hooks, which is where `ask`, `denied` and
+  refusals the log only implies are accounted for. A refusal later found to be a slow call
+  taking its dot back, and the next prompt clears them all.
+- While a call runs, two hands circle its station: the long one makes a lap a minute, the short
+  one a lap in ten, counted from the oldest running call there.
+- Calls that start together fly in side-by-side lanes, and the station shows `x3` while that
+  many run at once.
+
+![three parallel calls leaving the hub together](docs/parallel-lanes.png)
 
 ### Pulses and the feed
 
