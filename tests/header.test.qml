@@ -77,6 +77,28 @@ Item {
             h.info = strip({ task: "", project: "" });
             compare(item("title").text, "folder");
         }
+        function test_the_band_has_the_strips_divider_red_while_waiting() {
+            h.info = strip({});
+            compare(item("divider").height, 2);
+            compare(item("divider").color.toString(), Qt.rgba(0xd7 / 255, 0xdc / 255, 0xea / 255, 0.2).toString());
+            h.info = strip({ phase: "waiting" });
+            compare(item("divider").color.toString(), "#f7768e");
+        }
+        function test_the_status_sits_under_the_title_and_the_band_grows_to_hold_it() {
+            h.info = strip({});
+            verify(item("status").y >= item("title").y + item("title").height);
+            verify(h.height >= item("status").y + item("status").height + 2);
+            var withStatus = h.height;
+            h.info = strip({ running: 0, context: -1 });
+            compare(item("status").visible, false);
+            verify(h.height < withStatus);
+        }
+        function test_a_long_title_wraps_to_two_lines_and_no_more() {
+            h.info = strip({ task: "refactoring the whole session lifecycle so a long title is shown on two lines instead of being cut off after a dozen characters and never read" });
+            compare(item("title").lineCount, 2);
+            h.info = strip({ task: "short" });
+            compare(item("title").lineCount, 1);
+        }
         function test_click_focuses_only_when_there_is_a_window() {
             h.info = strip({});
             compare(h.canActivate, true);
