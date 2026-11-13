@@ -16,3 +16,18 @@ after move back (6 s later):
    roundhouse-follow-demo 'foot' ws 11
    org.quickshell 'roundhouse: followdemo · demo0001' ws 11
 Focus stayed on the user's own window throughout (move with follow = false).
+
+Second check, same day, after the review fixes (the window is found by the session id that ends
+its title, not by the whole title). The folder name was changed in the strip state at the very
+moment the terminal was moved, the race a reviewer described:
+
+before:
+   roundhouse-follow-demo 'foot' ws 11
+   org.quickshell 'roundhouse: followdemo · demo0002' ws 11
+moving the terminal 11 -> 12 AND renaming the folder at the same moment
+after (7 s later):
+   roundhouse-follow-demo 'foot' ws 12
+   org.quickshell 'roundhouse: renamedfolder · demo0002' ws 12
+after moving back (6 s later):
+   roundhouse-follow-demo 'foot' ws 11
+   org.quickshell 'roundhouse: renamedfolder · demo0002' ws 11

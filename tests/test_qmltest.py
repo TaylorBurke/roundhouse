@@ -29,6 +29,9 @@ class QtTestFiles(unittest.TestCase):
     def test_route_qml(self):
         self.run_file("route.test.qml")
 
+    def test_follow_qml(self):
+        self.run_file("follow.test.qml")
+
 
 if __name__ == "__main__":
     unittest.main()
