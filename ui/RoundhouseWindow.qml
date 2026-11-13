@@ -83,6 +83,8 @@ FloatingWindow {
         ended: win.session ? win.session.ended : false
         band: Qt.darker(theme.bg, 1.35)
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert
+        // Dragging the band moves the window: the compositor takes over the move.
+        onDragStarted: win.startSystemMove()
         onActivate: {
             var a = win.strip ? win.strip.address : "";
             if (/^0x[0-9a-f]{1,16}$/.test(a))

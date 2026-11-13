@@ -21,6 +21,7 @@ Item {
 
     readonly property bool canActivate: info !== null && typeof info.address === "string" && info.address !== ""
     signal activate()
+    signal dragStarted()                 // the pointer pressed here and began to drag: move the window
 
     readonly property int pad: 14        // the strip's own side inset
     readonly property int dividerHeight: 2
@@ -88,10 +89,17 @@ Item {
         }
     }
 
-    MouseArea {
-        anchors.fill: parent
+    // A tap focuses the terminal; a press that turns into a drag asks the window to move (the
+    // handlers tell them apart: moving past the drag threshold cancels the tap).
+    TapHandler {
         enabled: root.canActivate
+        onTapped: root.activate()
+    }
+    DragHandler {
+        target: null
+        onActiveChanged: if (active) root.dragStarted()
+    }
+    HoverHandler {
         cursorShape: root.canActivate ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: root.activate()
     }
 }
