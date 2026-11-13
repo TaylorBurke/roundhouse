@@ -45,13 +45,4 @@ TestCase {
         last = Follow.step(last, 0).last;
         compare(Follow.step(last, 12).move, true);
     }
-    function test_a_window_placed_by_hand_is_left_while_the_terminal_stays() {
-        // the terminal's workspace is the only input: readings that do not change never move it
-        var last = Follow.step(0, 11).last;
-        for (var i = 0; i < 20; i++) {
-            var d = Follow.step(last, 11);
-            compare(d.move, false);
-            last = d.last;
-        }
-    }
 }

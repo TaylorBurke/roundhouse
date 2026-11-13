@@ -46,7 +46,7 @@ FloatingWindow {
         var d = Follow.step(lastTerminalWorkspace, terminalWorkspace);
         // follow.py finds the window by the session id that ends its title, so a folder name that
         // changes at the same moment cannot make it miss.
-        if (d.move)
+        if (d.move && !win.all)     // the all-sessions window has no terminal of its own to follow
             Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/follow.py"), win.sid, String(terminalWorkspace)]);
         lastTerminalWorkspace = d.last;
     }

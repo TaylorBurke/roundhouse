@@ -87,15 +87,16 @@ class TitleContract(unittest.TestCase):
         self.assertIn("win.sid", call)
         self.assertNotIn("win.title", call)
 
-    def test_the_window_session_id_is_eight_characters_like_the_tool_expects(self):
-        with open(os.path.join(ROOT, "tools", "windows.py"), encoding="utf-8") as f:
-            windows_py = f.read()
-        self.assertIn("return sid[:8]", windows_py)
-        self.assertEqual(follow.SID.pattern, "[A-Za-z0-9_-]{8}")
+    def test_the_session_id_the_window_set_produces_is_one_follow_py_accepts(self):
+        import sys
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import windows
+        for raw in ("8f2cfbd5", "8f2cfbd5-2f0a-4bf6-9586-c048a025858a", "abcdefgh12345678"):
+            self.assertTrue(follow.SID.fullmatch(windows.norm(raw)), raw)
 
 
 class Command(unittest.TestCase):
-    def run_tool(self, *args, clients=None, hyprctl_fails=False, bad_json=False):
+    def run_tool(self, *args, clients=None, hyprctl_fails=False, bad_json=False, dispatch_fails=False):
         """Run follow.py with a fake hyprctl; returns (result, list of dispatch strings)."""
         with tempfile.TemporaryDirectory() as d:
             record = os.path.join(d, "dispatches")
@@ -103,7 +104,8 @@ class Command(unittest.TestCase):
             payload = "this is not json" if bad_json else json.dumps(clients if clients is not None else [])
             answer = "exit 1" if hyprctl_fails else f"cat <<'JSON_END'\n{payload}\nJSON_END"
             with open(fake, "w") as f:
-                f.write(f"#!/bin/sh\nif [ \"$1\" = clients ]; then\n{answer}\nelse\nprintf '%s\\n' \"$2\" >> '{record}'\nfi\n")
+                after = "exit 1" if dispatch_fails else ":"       # a move that Hyprland refuses
+                f.write(f"#!/bin/sh\nif [ \"$1\" = clients ]; then\n{answer}\nelse\nprintf '%s\\n' \"$2\" >> '{record}'\n{after}\nfi\n")
             os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
             env = {**os.environ, "PATH": d + os.pathsep + os.environ["PATH"]}
             run = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=20)
@@ -126,6 +128,10 @@ class Command(unittest.TestCase):
 
     def test_it_still_finds_the_window_after_the_folder_name_changed(self):
         run, sent = self.run_tool(SID, "12", clients=[client(folder="renamed")])
+        self.assertEqual((run.returncode, len(sent)), (0, 1))
+
+    def test_a_failed_move_is_not_an_error_the_window_simply_stays(self):
+        run, sent = self.run_tool(SID, "12", clients=[client()], dispatch_fails=True)
         self.assertEqual((run.returncode, len(sent)), (0, 1))
 
     def test_it_exits_1_when_hyprland_cannot_be_read(self):
