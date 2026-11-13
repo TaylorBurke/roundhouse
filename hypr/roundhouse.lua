@@ -9,8 +9,9 @@ o.window(
   { float = true, size = { 360, 680 }, pin = true }
 )
 
--- A window for one session (title "roundhouse: <name>"): not pinned, so it stays on the
--- workspace it was opened on, which is the terminal's.
+-- A window for one session (title "roundhouse: <name> · <id>"): not pinned, so it stays on the
+-- workspace it was opened on, which is the terminal's. roundhouse itself moves it along when
+-- the terminal changes workspace (tools/follow.py); no rule is needed for that.
 o.window(
   { class = "^org\\.quickshell$", title = "^roundhouse: .*" },
   { float = true, size = { 360, 680 } }

@@ -156,8 +156,9 @@ and a `FloatingWindow` closed by the compositor reports it as `visible` becoming
 Quickshell: already installed, no build step, QML drawing, and the theme is followed by watching
 `~/.local/state/omarchy/current/theme/colors.toml`. The feared risk, that Quickshell windows share
 one app id, is real (`org.quickshell` for all of them) but harmless: the Hyprland rules match on
-the title, which is `roundhouse` for the all-sessions window and `roundhouse: <name>` for the
-others. So the fallback (the same QML in a small Qt Quick app with its own app id) was never
+the title, which is `roundhouse` for the all-sessions window and `roundhouse: <name> · <id>` for the
+others (the id keeps two windows of one folder apart, which is also how a window is found to follow
+its terminal to another workspace: `tools/follow.py`). So the fallback (the same QML in a small Qt Quick app with its own app id) was never
 needed. A Chrome `--app` page was rejected as heavy and unable to follow the theme.
 
 Hyprland on this system is configured in Lua, so the window rules ship as a Lua snippet

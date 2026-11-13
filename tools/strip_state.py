@@ -2,13 +2,15 @@
 """What claude-strip knows about each session, keyed by roundhouse's session id.
 
 Prints one JSON object: {"ab12cd34": {"project", "task", "phase", "running", "context",
-"pid", "address"}, ...}. Optional and read-only: it reads the strip's own state files
+"pid", "address", "workspace"}, ...}. Optional and read-only: it reads the strip's own state files
 ($XDG_RUNTIME_DIR/claude-strip/<pid>.json, or $CLAUDE_STRIP_DIR) and writes nothing.
 
 A file is used when it has a `sessionId` (written by the session-strip mod that ships with claude-strip 0.4), its
 process is alive, and its session has not ended. The key is the first 8 characters of the
 session id, as in roundhouse's log. `address` is the Hyprland window of the terminal the
 session runs in (found by walking up from `pid`), or null; it is for focusing that window.
+`workspace` is the id of the workspace that terminal is on (null if unknown or a special one),
+so the session's window can follow the terminal when it is moved to another workspace.
 
 The `task` is the strip's own title, a summary of the session's prompts. It is passed on to
 the window and shown there; roundhouse never writes it to its log.
@@ -42,16 +44,30 @@ def parent_of(pid):
         return 0
 
 
-def window_address(pid, clients_by_pid):
+def window_client(pid, clients_by_pid):
+    """The Hyprland client of the terminal a process runs in, found by walking up its parents."""
     seen = 0
     while pid > 1 and seen < 64:
         client = clients_by_pid.get(pid)
         if client:
-            address = client.get("address")
-            return address if isinstance(address, str) and ADDRESS.fullmatch(address) else None
+            return client
         pid = parent_of(pid)
         seen += 1
     return None
+
+
+def window_address(pid, clients_by_pid):
+    client = window_client(pid, clients_by_pid)
+    address = client.get("address") if client else None
+    return address if isinstance(address, str) and ADDRESS.fullmatch(address) else None
+
+
+def window_workspace(pid, clients_by_pid):
+    """The workspace id the terminal is on, or None (also for a special workspace, which has a negative id)."""
+    client = window_client(pid, clients_by_pid)
+    ws = client.get("workspace") if client else None
+    ident = ws.get("id") if isinstance(ws, dict) else None
+    return ident if isinstance(ident, int) and not isinstance(ident, bool) and ident > 0 else None
 
 
 def hypr_clients():
@@ -98,6 +114,7 @@ def main():
         clients = hypr_clients()
         for s in states.values():
             s["address"] = window_address(s["pid"], clients)
+            s["workspace"] = window_workspace(s["pid"], clients)
     print(json.dumps(states))
 
 
