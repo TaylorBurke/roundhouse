@@ -202,6 +202,39 @@ Item {
         }
     }
 
+    // The route line never crosses the hub or the context ring round it: it stays at least this far
+    // from the hub's centre (the ring's outer edge, and a little air).
+    readonly property real routeClear: hubR + 14
+    function bezierAt(a, k, b, t) {
+        var u = 1 - t;
+        return Qt.point(u * u * a.x + 2 * u * t * k.x + t * t * b.x, u * u * a.y + 2 * u * t * k.y + t * t * b.y);
+    }
+    // How near the curve a-k-b comes to the hub's centre.
+    function routeNearest(a, k, b) {
+        var m = 1e9;
+        for (var i = 0; i <= 48; i++) {
+            var p = bezierAt(a, k, b, i / 48);
+            m = Math.min(m, Math.sqrt((p.x - cx) * (p.x - cx) + (p.y - cy) * (p.y - cy)));
+        }
+        return m;
+    }
+    // The control point of the curve from station point a to b. Neighbours get the gentle bow
+    // towards the hub; if that would come too close to the hub (stations on opposite sides), the
+    // curve is swung out, to the side away from the hub, until it clears it all the way round.
+    function routeControl(a, b) {
+        var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        var k = Qt.point(mx + (cx - mx) * 0.3, my + (cy - my) * 0.3);
+        if (routeNearest(a, k, b) >= routeClear) return k;
+        var dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+        var nx = -dy / d, ny = dx / d;
+        if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
+        for (var h = 0; h <= 600; h += 3) {
+            k = Qt.point(mx + nx * 2 * h, my + ny * 2 * h);     // the curve's middle lies h off the chord
+            if (routeNearest(a, k, b) >= routeClear) break;
+        }
+        return k;
+    }
+
     // the route line: a thin curve joining the stations the main loop visited last. The newest
     // leg draws itself; a leg holds for 40 s and fades over 20. Time passes without events, so
     // a timer repaints while any leg is showing.
@@ -227,8 +260,7 @@ Item {
             var tint = root.accent;
             legs.forEach(function (leg, n) {
                 var a = root.pos(root.indexOf(leg.from)), b = root.pos(root.indexOf(leg.to));
-                var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-                var kx = mx + (root.cx - mx) * 0.3, ky = my + (root.cy - my) * 0.3;   // bow towards the hub
+                var k = root.routeControl(a, b), kx = k.x, ky = k.y;
                 var newest = n === legs.length - 1, reach = newest ? Math.min(1, leg.age / 0.6) : 1;
                 var steps = Math.max(2, Math.round(28 * reach)), x = a.x, y = a.y;
                 c.beginPath(); c.moveTo(a.x, a.y);

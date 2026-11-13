@@ -12,6 +12,7 @@ Item {
         ink: "#8d96ab"; inkStrong: "#d7dcea"; faint: "#4a5164"; accent: "#e0a458"; alert: "#f7768e"
     }
     SignalSpy { id: activated; target: h; signalName: "activate" }
+    SignalSpy { id: dragged; target: h; signalName: "dragStarted" }
 
     TestCase {
         name: "StripHeader"
@@ -19,6 +20,7 @@ Item {
 
         function init() {
             activated.clear();
+            dragged.clear();
             h.info = null; h.name = ""; h.model = ""; h.ended = false;
         }
         function strip(over) {
@@ -87,6 +89,27 @@ Item {
             compare(item("title").lineCount, 2);
             h.info = strip({ task: "short" });
             compare(item("title").lineCount, 1);
+        }
+        function test_dragging_the_band_asks_the_window_to_move_and_does_not_focus() {
+            h.info = strip({});
+            mouseDrag(h, 100, 10, 60, 30);
+            compare(dragged.count, 1);
+            compare(activated.count, 0);
+        }
+        function test_the_band_can_be_dragged_with_no_strip_or_terminal_too() {
+            h.info = null;
+            mouseDrag(h, 100, 10, 60, 30);
+            compare(dragged.count, 1);
+            h.info = strip({ address: null });
+            mouseDrag(h, 100, 10, 60, 30);
+            compare(dragged.count, 2);
+            compare(activated.count, 0);
+        }
+        function test_a_plain_click_does_not_start_a_move() {
+            h.info = strip({});
+            mouseClick(h, 100, 10);
+            compare(activated.count, 1);
+            compare(dragged.count, 0);
         }
         function test_click_focuses_only_when_there_is_a_window() {
             h.info = strip({});

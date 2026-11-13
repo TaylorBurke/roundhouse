@@ -26,6 +26,9 @@ class QtTestFiles(unittest.TestCase):
     def test_tooltip_qml(self):
         self.run_file("tooltip.test.qml")
 
+    def test_route_qml(self):
+        self.run_file("route.test.qml")
+
 
 if __name__ == "__main__":
     unittest.main()
