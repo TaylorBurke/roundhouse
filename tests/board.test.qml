@@ -156,6 +156,23 @@ QtObject {
         for (i = 0; i < 40; i++) Board.fold(b, ev({ ts: 1 + i, ev: "tool_end", id: "m" + i, station: i % 2 ? "files" : "shell", label: "n" + i, tool: "Read", status: "ok" }));
         check("rows cap", [Board.feedRows(sess(b), 16).length, Board.feedRows(sess(b), 16)[0].label], [16, "n39"]);
 
+        // context window: setting, guess from the model name, never smaller than the contents
+        check("parse", [Board.parseWindow(1000000), Board.parseWindow("1m"), Board.parseWindow("200K"), Board.parseWindow("1.5m"), Board.parseWindow("auto"), Board.parseWindow(5), Board.parseWindow(null)], [1000000, 1000000, 200000, 1500000, 0, 0, 0]);
+        check("size auto", [Board.windowSize("claude-sonnet-5-5", 100, 0), Board.windowSize("claude-opus-5-5[1m]", 100, 0), Board.windowSize("claude-opus-5-5-1m", 100, 0), Board.windowSize("claude-haiku-5-5", 100, 0)], [200000, 1000000, 1000000, 200000]);
+        check("size override", [Board.windowSize("claude-sonnet-5-5", 100, 1000000), Board.windowSize("claude-opus-5-5[1m]", 100, 200000)], [1000000, 200000]);
+        check("size grows", Board.windowSize("claude-sonnet-5-5", 250000, 0), 1000000);
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
+        check("no context yet", Board.contextOf(sess(b), 0), null);
+        Board.fold(b, ev({ ts: 2, ev: "context", tokens: 140000, model: "claude-sonnet-5-5" }));
+        check("share", [Board.contextOf(sess(b), 0).share, Board.contextOf(sess(b), 0).size, Board.contextOf(sess(b), 0).stale], [0.7, 200000, false]);
+        Board.fold(b, ev({ ts: 3, ev: "compact_start", trigger: "manual" }));
+        check("compacting on", Board.compacting(sess(b)), true);
+        Board.fold(b, ev({ ts: 4, ev: "compact_end", trigger: "manual" }));
+        check("compacting off, reading stale", [Board.compacting(sess(b)), Board.contextOf(sess(b), 0).stale], [false, true]);
+        Board.fold(b, ev({ ts: 5, ev: "context", tokens: 20000, model: "claude-sonnet-5-5" }));
+        check("fresh after compact", [Board.contextOf(sess(b), 0).stale, Board.contextOf(sess(b), 0).share], [false, 0.1]);
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }

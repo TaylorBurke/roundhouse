@@ -1,5 +1,6 @@
 import QtQuick
 import "icons.js" as Icons
+import "board.js" as Board
 
 // The resting map: a hub in the middle, ten stations on an ellipse (You at the top, then
 // clockwise), a spoke to each, dashed contour rings behind. Everything is placed from the
@@ -17,6 +18,7 @@ Item {
     property color discEdge: "#2c3240"
     property color accent: "#e0a458"  // hub outline, running calls, outbound pulses
     property color alert: "#f7768e"   // failed and blocked calls
+    property int windowSetting: 0     // context window from the settings file; 0 = guess
 
     readonly property var stations: [
         { key: "you", label: "You" }, { key: "model", label: "Model" }, { key: "memory", label: "Memory" },
@@ -79,6 +81,11 @@ Item {
         } else if (k === "stop") {
             ripple(hub, accent, hubR, Math.max(rx, ry) * 1.15, 1100);
             ripple(pos(indexOf("you")), accent, discR, discR * 1.9, 700, 500);
+        } else if (k === "model") {
+            ripple(hub, accent, hubR, hubR * 1.7, 2600);
+            ripple(pos(indexOf("model")), accent, discR, discR * 2.2, 2600);
+        } else if (k === "compact_start" || k === "compact_end") {
+            ripple(pos(indexOf("model")), ink, discR, discR * 1.9, 900);
         } else if ((k === "ask" || k === "denied") && i >= 0) {
             ripple(pos(i), k === "denied" ? alert : accent, discR, discR * 1.9, 700);
         }
@@ -89,6 +96,14 @@ Item {
             dot(pos(j), hub, alert, 420);
         });
     }
+
+    readonly property var context: revision >= 0 ? Board.contextOf(session, windowSetting) : null
+    readonly property bool compactingNow: revision >= 0 && Board.compacting(session)
+    function sizeLabel(n) { return n >= 1000000 ? (n / 1000000) + "M" : Math.round(n / 1000) + "k"; }
+    function percentLabel() {
+        return !context ? "" : (context.stale ? "\u2013" : Math.round(context.share * 100)) + "% of " + sizeLabel(context.size);
+    }
+    onContextChanged: ring.requestPaint()
 
     function modelName() {
         var m = revision >= 0 && session ? session.model : "";
@@ -157,6 +172,25 @@ Item {
         }
     }
 
+    // how full the context window is, as a ring around the hub: grey, amber from 70%, red from 90%
+    Canvas {
+        id: ring
+        width: (root.hubR + 8) * 2; height: width
+        x: root.cx - width / 2; y: root.cy - height / 2
+        onWidthChanged: requestPaint()
+        onPaint: {
+            var c = getContext("2d"), mid = width / 2, r = root.hubR + 6;
+            c.reset();
+            c.lineWidth = 3; c.lineCap = "round";
+            c.strokeStyle = root.ring; c.beginPath(); c.arc(mid, mid, r, 0, 2 * Math.PI); c.stroke();
+            var ctx = root.context;
+            if (!ctx || ctx.share <= 0) return;
+            c.strokeStyle = ctx.stale ? root.faint : ctx.share >= 0.9 ? root.alert : ctx.share >= 0.7 ? root.accent : root.ink;
+            if (ctx.stale) c.setLineDash([3, 4]);
+            c.beginPath(); c.arc(mid, mid, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * ctx.share); c.stroke();
+        }
+    }
+
     Item { id: overlay; anchors.fill: parent }
 
     Component {
@@ -218,17 +252,25 @@ Item {
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.countOf(modelData.key) > 0 ? root.countOf(modelData.key) : ""
-                color: root.faint
+                text: modelData.key === "model" && root.compactingNow ? "compacting"
+                      : root.countOf(modelData.key) > 0 ? root.countOf(modelData.key) : ""
+                color: modelData.key === "model" && root.compactingNow ? root.accent : root.faint
                 font.family: "monospace"; font.pixelSize: Math.max(8, root.unit * 0.03)
             }
         }
     }
 
     Column {
-        anchors.centerIn: undefined
         x: root.cx - width / 2
         y: root.cy - height / 2
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            visible: text !== ""
+            text: root.percentLabel()
+            color: root.context && !root.context.stale && root.context.share >= 0.9 ? root.alert
+                 : root.context && !root.context.stale && root.context.share >= 0.7 ? root.accent : root.faint
+            font.family: "monospace"; font.pixelSize: Math.max(8, root.unit * 0.026)
+        }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "CLAUDE"; color: root.inkStrong

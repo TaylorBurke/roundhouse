@@ -20,7 +20,7 @@ into your Claude Code settings.
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
 | 3 | Window with the static map and live pulses | done, for review |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | next |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6) done; rest next |
 | 5 | Install and uninstall scripts | |
 
 ## How it works
@@ -108,6 +108,31 @@ so it scales: ten stations on an ellipse with You at the top and the rest clockw
 to each, dashed contour rings, an icon and label per station with the number of recent calls
 under it, and the model name in the hub. Colours are properties on `MapView`, ready for the
 theme work. Icons are original line drawings.
+
+### Context ring and the model
+
+![the ring at 40%, 75%, 95% and over 200k](docs/context-ring.png)
+
+The ring around the hub is how full the context window is: grey, amber from 70%, red from
+90%, with the percentage and the assumed window ("75% of 200k") in the hub and the model's
+short name under "CLAUDE". The transcript does not say whether you run the 200k or the 1M
+window, so it is a guess from the model name (a `1m` in it means 1M) and grows to 1M if more
+than 200k tokens turn up. To set it, create `~/.config/roundhouse/config.json`
+(`$XDG_CONFIG_HOME` is honoured; the file is watched, so no restart):
+
+```json
+{ "contextWindow": "1m" }
+```
+
+A number (`1000000`), `"200k"`, `"1m"` or `"auto"` all work; a missing or broken file means auto.
+
+![a model switch: rings at the hub and Model, new name in the hub](docs/context-model-switch.png)
+
+A model change rings the hub and the Model station for a few seconds. A compaction lights
+Model and labels it "compacting"; afterwards the ring is dashed with "\u2013%" until the next
+real reading, because the transcript still holds the old numbers right after a compaction.
+
+![compacting, then an unknown reading, then a fresh one](docs/context-compacting.png)
 
 ### Pulses and the feed
 

@@ -80,7 +80,8 @@ a connection itself shows as Shell.
 - **Model steps.** No hook fires per model request. The Model station pulses on a prompt
   and after each tool batch; there is no step counter.
 - **Context percentage.** No hook carries it. The emitter reads token counts from the
-  transcript, and the window size (200k or 1M) will be a renderer setting.
+  transcript; the window size (200k or 1M) is a renderer setting (`config.json`), guessed
+  from the model name when unset and raised to 1M if the tokens exceed 200k.
 - **Context added by other hooks.** Not visible to a hook, so those rows are absent.
 - **A refusal, directly.** See below.
 
