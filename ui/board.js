@@ -3,6 +3,9 @@
 // Names only, never content: it keeps exactly the fields the emitter wrote.
 
 var MAX_ENTRIES = 80;
+var ROUTE_KEEP = 7;        // stations the route line joins
+var ROUTE_HOLD = 40;       // seconds a leg stays at full strength ...
+var ROUTE_FADE = 20;       // ... then fades out over this many
 var MAX_SEEN = 3000;
 var LABELS = { you: "You", model: "Model", memory: "Memory", files: "Files", shell: "Shell", network: "Network",
                browser: "Browser", agents: "Agents", skills: "Skills", hooks: "Hooks" };
@@ -21,6 +24,8 @@ function newSession(sid) {
         tokensStale: false,       // a compaction since the last reading: the number is out of date
         switched: false,          // a model event since the last prompt: context's model name is stale
         stations: stations,
+        uses: {},                 // station -> every call seen there this session (wears the spoke)
+        route: [],                // stations the main loop visited, newest last: { station, ts }
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
         entries: [],              // newest last, at most MAX_ENTRIES
         byId: {},                 // tool-use id -> entry still in entries
@@ -83,6 +88,16 @@ function closeOpen(sess, ev) {
     });
 }
 
+// The route line follows the main loop only: subagent calls are left out, and so are
+// repeats at the same station (a leg needs two different ends).
+function visit(sess, entry) {
+    if (entry.agent || !LABELS[entry.station]) return;
+    var last = sess.route[sess.route.length - 1];
+    if (last && last.station === entry.station) return;
+    sess.route.push({ station: entry.station, ts: entry.ts });
+    if (sess.route.length > ROUTE_KEEP) sess.route.shift();
+}
+
 function applyTool(sess, ev, ending) {
     var entry = ev.id ? sess.byId[ev.id] : null;
     if (!entry) {
@@ -91,6 +106,8 @@ function applyTool(sess, ev, ending) {
             status: "running", agent: ev.agent || null, bg: !!ev.bg
         });
         if (ending) entry.ts = ev.ts - (ev.ms || 0) / 1000;   // an end without a start
+        sess.uses[ev.station] = (sess.uses[ev.station] || 0) + 1;
+        visit(sess, entry);
     }
     if (!ending) {
         if (ev.bg) entry.bg = true;
@@ -207,6 +224,26 @@ function contextOf(sess, override) {
     return { share: Math.min(1, sess.tokens / size), size: size, stale: sess.tokensStale };
 }
 
+// The legs of the route line as of `now` (seconds): { from, to, age, alpha }. A leg holds at
+// full strength for ROUTE_HOLD seconds, then fades over ROUTE_FADE, then is gone.
+function routeLegs(sess, now) {
+    var legs = [];
+    if (!sess) return legs;
+    for (var i = 1; i < sess.route.length; i++) {
+        var age = now - sess.route[i].ts;
+        if (age < 0) age = 0;
+        var alpha = age <= ROUTE_HOLD ? 1 : Math.max(0, 1 - (age - ROUTE_HOLD) / ROUTE_FADE);
+        if (alpha > 0) legs.push({ from: sess.route[i - 1].station, to: sess.route[i].station, age: age, alpha: alpha });
+    }
+    return legs;
+}
+
+// How worn a station's spoke is, 0..1, on a log scale: 1 call is a little, about 60 is full.
+function wear(sess, station) {
+    var n = sess && sess.uses[station] || 0;
+    return Math.min(1, Math.log(1 + n) / Math.log(61));
+}
+
 function compacting(sess) {
     return !!sess && sess.entries.some(function (e) { return e.station === "model" && e.label === "compacting" && e.status === "running"; });
 }
@@ -243,4 +280,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

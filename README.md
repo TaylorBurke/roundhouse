@@ -20,7 +20,7 @@ into your Claude Code settings.
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
 | 3 | Window with the static map and live pulses | done, for review |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6) done; rest next |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7) done; rest next |
 | 5 | Install and uninstall scripts | |
 
 ## How it works
@@ -133,6 +133,17 @@ Model and labels it "compacting"; afterwards the ring is dashed with "\u2013%" u
 real reading, because the transcript still holds the old numbers right after a compaction.
 
 ![compacting, then an unknown reading, then a fresh one](docs/context-compacting.png)
+
+### Route line and worn spokes
+
+![the route line in a replayed real session](docs/route-live.png)
+
+A thin curve joins the last seven stations the main loop visited (subagent calls and repeats at
+the same station are left out). The newest leg draws itself; a leg holds at full strength for 40
+seconds, then fades over 20. Spokes grow thicker and brighter with use, on a log scale: one
+call is a hint, around sixty is full.
+
+![legs at 2 s, 45 s, 55 s and 62 s; Files, Shell and Network spokes worn by use](docs/route-fade.png)
 
 ### Pulses and the feed
 
