@@ -10,18 +10,18 @@ Code plugin that draws this map in the desktop app. In a terminal session that p
 shows only its text feed; this project gets the picture on screen anyway, fed by
 ordinary Claude Code hooks. The code here is written fresh.
 
-**Status: stage 3 of 5 done, waiting for review.** The hook emitter, a terminal log viewer and a
-floating window work: the map pulses as Claude Code works, with a one-line current action and
-a feed underneath. No context ring, route line or theme yet (stage 4), nothing is installed
-into your Claude Code settings.
+**Status: stage 4 of 5 done.** The hook emitter, a terminal log viewer and a floating window
+work: the map pulses as Claude Code works, with a context ring, route line, error dots,
+background tasks, subagents, the Omarchy theme and a session switcher. Only the install and
+uninstall scripts (stage 5) are left; nothing is installed into your Claude Code settings yet.
 
 | Stage | What | State |
 | --- | --- | --- |
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
 | 3 | Window with the static map and live pulses | done, for review |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7), error dots, clock hands and parallel lanes (#8), background tasks and subagents (#9), theme (#10) done; session switcher next |
-| 5 | Install and uninstall scripts | |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme, session switcher | done |
+| 5 | Install and uninstall scripts | next |
 
 ## How it works
 
@@ -191,6 +191,20 @@ hundred bytes). While the file is briefly missing mid-switch the current colours
 To try a theme without switching your desktop, point `ROUNDHOUSE_THEME` at any `colors.toml`:
 `ROUNDHOUSE_THEME=/usr/share/omarchy/themes/catppuccin-latte/colors.toml bin/roundhouse`.
 
+### Several sessions
+
+![auto on alpha, stepped to beta (pinned), the list, and auto following beta again](docs/sessions.png)
+
+A bar under the map names the session on show (its folder) and where it sits among the live
+ones (`2/3`). By default the window follows whichever session was active most recently
+(`auto`); stepping to another one pins it (`pinned`) until you go back to auto. A session
+that ended, or has been quiet for 30 minutes, is not listed. If the one you pinned ends, the
+window falls back to auto. Only the session on show pulses.
+
+- **Mouse:** `‹` `›` step through sessions, the name opens the list, `pinned` goes back to auto.
+- **Keyboard** (click the window first): `[` `]` or the arrow keys step, space opens the
+  list and `1`-`9` pick from it, `a` is auto, escape closes the list.
+
 ### Pulses and the feed
 
 ![a recorded session replayed into the window](docs/pulses.gif)
@@ -240,7 +254,7 @@ bin/lot-map-log -s 7c8862de  one session only
 
 ## Requirements
 
-Python 3 (standard library only); `quickshell` for the window; `qml6` (qt6-declarative) to run the board tests. Claude Code 2.1.295 or later is recommended.
+Python 3 (standard library only); `quickshell` for the window; `qml6` and `qmltestrunner` (both in qt6-declarative) to run the tests. Claude Code 2.1.295 or later is recommended.
 
 ## Tests
 

@@ -91,14 +91,31 @@ QtObject {
         // damaged and blank lines are ignored
         check("junk", [Board.foldLine(b, ""), Board.foldLine(b, "{not json"), Board.foldLine(b, "[1]"), Board.foldLine(b, "{}")], [false, false, false, false]);
 
-        // most recently active session wins
+        // the session shown: the most recently active live one, a live pin, dropped when ended or idle
         b = Board.newBoard();
         Board.fold(b, { sid: "old", ts: 1, ev: "prompt" });
         Board.fold(b, { sid: "new", ts: 5, ev: "prompt" });
         Board.fold(b, { sid: "old", ts: 3, ev: "stop", bg: [] });
-        check("active", b.active, "new");
+        check("active", Board.activeSid(b, "", 10), "new");
         Board.fold(b, { sid: "old", ts: 9, ev: "prompt" });
-        check("active moves", b.active, "old");
+        check("active moves", Board.activeSid(b, "", 10), "old");
+        check("pinned wins", Board.activeSid(b, "new", 10), "new");
+        check("pin on an unknown session is ignored", Board.activeSid(b, "nope", 10), "old");
+        Board.fold(b, { sid: "new", ts: 11, ev: "session_end", reason: "other" });
+        check("ended pin falls back", [Board.activeSid(b, "new", 12), Board.liveSessions(b, 12).map(function (s) { return s.sid; })], ["old", ["old"]]);
+        Board.fold(b, { sid: "old", ts: 13, ev: "session_end", reason: "other" });
+        check("none live: most recent of all", [Board.activeSid(b, "", 14), Board.liveSessions(b, 14).length], ["old", 0]);
+        check("nothing at all", Board.activeSid(Board.newBoard(), "", 1), null);
+        b = Board.newBoard();
+        Board.fold(b, { sid: "a", ts: 100, ev: "prompt" });
+        Board.fold(b, { sid: "b", ts: 200, ev: "prompt" });
+        Board.fold(b, { sid: "c", ts: 300, ev: "prompt" });
+        check("idle drop", Board.liveSessions(b, 100 + 1799).map(function (s) { return s.sid; }), ["a", "b", "c"]);
+        check("idle drop 2", Board.liveSessions(b, 100 + 1800).map(function (s) { return s.sid; }), ["b", "c"]);
+        check("order is first sight, not activity", (Board.fold(b, { sid: "a", ts: 400, ev: "prompt" }), Board.liveSessions(b, 500).map(function (s) { return s.sid; })), ["a", "b", "c"]);
+        check("cycle", [Board.cycleSid(b, "a", 1, 500), Board.cycleSid(b, "c", 1, 500), Board.cycleSid(b, "a", -1, 500), Board.cycleSid(b, "zzz", 1, 500)], ["b", "a", "c", "a"]);
+        check("cycle with none", Board.cycleSid(Board.newBoard(), "x", 1, 1), "x");
+        check("idle label", [Board.idleLabel(3), Board.idleLabel(40), Board.idleLabel(300), Board.idleLabel(7300)], ["now", "40s", "5m", "2h"]);
 
         // model event beats a stale context reading until the next prompt
         b = Board.newBoard();

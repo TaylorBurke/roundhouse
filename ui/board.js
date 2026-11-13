@@ -3,6 +3,7 @@
 // Names only, never content: it keeps exactly the fields the emitter wrote.
 
 var MAX_ENTRIES = 80;
+var SESSION_IDLE = 1800;   // seconds without an event before a session is dropped from the switcher
 var ROUTE_KEEP = 7;        // stations the route line joins
 var ROUTE_HOLD = 40;       // seconds a leg stays at full strength ...
 var ROUTE_FADE = 20;       // ... then fades out over this many
@@ -12,14 +13,14 @@ var LABELS = { you: "You", model: "Model", memory: "Memory", files: "Files", she
 var STATIONS = ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"];
 
 function newBoard() {
-    return { sessions: {}, active: null, seen: {}, seenOrder: [] };
+    return { sessions: {}, seen: {}, seenOrder: [] };
 }
 
 function newSession(sid) {
     var stations = {};
     STATIONS.forEach(function (s) { stations[s] = { count: 0, running: 0, blocked: 0, errors: 0 }; });
     return {
-        sid: sid, dir: "", model: "", tokens: 0, lastTs: 0, ended: false,
+        sid: sid, dir: "", model: "", tokens: 0, firstTs: 0, lastTs: 0, ended: false,
         hasContext: false,        // a context reading has arrived
         tokensStale: false,       // a compaction since the last reading: the number is out of date
         switched: false,          // a model event since the last prompt: context's model name is stale
@@ -153,7 +154,7 @@ function fold(board, ev) {
     var kind = ev.ev;
     sess.newlyBlocked = [];
     if (ev.ts > sess.lastTs) sess.lastTs = ev.ts;
-    if (!board.active || ev.ts >= board.sessions[board.active].lastTs) board.active = ev.sid;
+    if (!sess.firstTs || ev.ts < sess.firstTs) sess.firstTs = ev.ts;
 
     if (kind === "session") {
         if (ev.dir) sess.dir = ev.dir;
@@ -238,6 +239,43 @@ function foldLine(board, line) {
     var ev;
     try { ev = JSON.parse(line); } catch (e) { return false; }
     return fold(board, ev) ? ev : false;
+}
+
+// ---- sessions ---------------------------------------------------------------------------
+// The sessions worth showing: not ended, and heard from within SESSION_IDLE seconds of `now`.
+// In a stable order (by first sight), so cycling does not reshuffle as activity moves around.
+function liveSessions(board, now) {
+    return Object.keys(board.sessions).map(function (id) { return board.sessions[id]; })
+        .filter(function (s) { return !s.ended && now - s.lastTs < SESSION_IDLE; })
+        .sort(function (a, b) { return a.firstTs - b.firstTs; });
+}
+
+// The session to show: the pinned one while it is still live; otherwise the most recently
+// active live one; if none is live, the most recent of all (so the map is not blank).
+function activeSid(board, pinned, now) {
+    var live = liveSessions(board, now);
+    if (pinned && live.some(function (s) { return s.sid === pinned; })) return pinned;
+    var pool = live.length ? live : Object.keys(board.sessions).map(function (id) { return board.sessions[id]; });
+    var best = null;
+    pool.forEach(function (s) { if (!best || s.lastTs > best.lastTs) best = s; });
+    return best ? best.sid : null;
+}
+
+// The next (dir = 1) or previous (dir = -1) live session after `shown`, wrapping round.
+function cycleSid(board, shown, dir, now) {
+    var live = liveSessions(board, now);
+    if (live.length === 0) return shown;
+    var at = -1;
+    live.forEach(function (s, i) { if (s.sid === shown) at = i; });
+    return live[((at < 0 ? 0 : at + dir) % live.length + live.length) % live.length].sid;
+}
+
+// A short idle time for the list: "now", "40s", "5m", "2h".
+function idleLabel(seconds) {
+    if (seconds < 10) return "now";
+    if (seconds < 60) return Math.floor(seconds) + "s";
+    if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+    return Math.floor(seconds / 3600) + "h";
 }
 
 // A context-window setting as a number of tokens: 200000, "1m", "200k" and so on. 0 means auto.
@@ -344,4 +382,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

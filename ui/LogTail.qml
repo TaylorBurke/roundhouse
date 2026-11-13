@@ -18,7 +18,21 @@ Item {
     // An event that is happening now (not history replayed at start-up) in the session on show.
     // `blocked` lists the calls that event just marked blocked.
     signal live(var ev, var blocked)
-    readonly property var active: revision >= 0 && board.active ? board.sessions[board.active] : null
+    // Which session is on show: the one pinned here while it is live, else the most recently
+    // active. `tick` makes the choice (and the idle clock) re-evaluate as time passes.
+    property string pinned: ""
+    property int tick: 0
+    function now() { return Date.now() / 1000; }
+    readonly property string shownSid: revision >= 0 && tick >= 0 ? (Board.activeSid(board, pinned, now()) || "") : ""
+    readonly property var active: shownSid ? board.sessions[shownSid] : null
+    readonly property bool isPinned: pinned !== "" && pinned === shownSid
+    readonly property var sessionList: revision >= 0 && tick >= 0
+        ? Board.liveSessions(board, now()).map(function (s) { return { sid: s.sid, name: s.dir || s.sid, idle: now() - s.lastTs }; })
+        : []
+    function pick(sid) { pinned = sid; }
+    function follow() { pinned = ""; }
+    function cycle(dir) { pinned = Board.cycleSid(board, shownSid, dir, now()); }
+    Timer { interval: 20000; running: true; repeat: true; onTriggered: root.tick++ }
 
     Process {
         running: true
@@ -28,7 +42,7 @@ Item {
                 var ev = Board.foldLine(root.board, line);
                 if (!ev) return;
                 root.revision++;
-                if (ev.sid === root.board.active && Date.now() / 1000 - ev.ts < 5)
+                if (ev.sid === Board.activeSid(root.board, root.pinned, root.now()) && root.now() - ev.ts < 5)
                     root.live(ev, root.board.sessions[ev.sid].newlyBlocked);
             }
         }
