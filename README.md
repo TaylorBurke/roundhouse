@@ -51,19 +51,74 @@ Control characters are stripped from every label. The emitter makes no network c
 starts no processes, prints nothing and always exits 0, and the hooks are registered as
 `async`, so they cannot hold up or alter a tool call.
 
+## Install
+
+```bash
+git clone https://github.com/TaylorBurke/roundhouse ~/Work/roundhouse   # or anywhere
+cd ~/Work/roundhouse
+./install.sh --dry-run     # shows everything it would do, changes nothing
+./install.sh               # shows each change and asks before making it
+```
+
+Requires Python 3 and, for the window, Quickshell on Hyprland (Omarchy). **What it changes, and
+nothing else:**
+
+1. **`~/.claude/settings.json`**: adds one hook for each of the 17 events it listens to (the
+   list is in `tools/setup.py`), every one the command `<this folder>/hooks/emit.py` with
+   `"async": true`. It backs the file up first (`settings.json.roundhouse-backup-<time>`), prints
+   the exact diff and asks. Hooks you already have are left alone; running it again adds nothing.
+   (`$CLAUDE_CONFIG_DIR` is honoured.) Open Claude Code sessions need a restart to pick the hooks up.
+2. **`~/.local/bin/roundhouse`**: a symlink to `bin/roundhouse`, so the command is on your PATH.
+   An existing file of that name that is not ours is never replaced.
+3. **`~/.config/hypr/hyprland.lua`** (asks, default no): appends the one line
+   `dofile("<this folder>/hypr/roundhouse.lua")  -- roundhouse`, which floats and sizes the windows.
+   It backs the file up, reloads Hyprland and checks `hyprctl configerrors`, and puts the backup
+   back if there is any error. You can add that line yourself instead.
+
+At run time the hooks write a small log under `$XDG_RUNTIME_DIR/lot-map` (tmpfs, owner-only, gone at
+logout), and the window settings you choose go in `~/.config/roundhouse/config.json`.
+
+## Uninstall
+
+```bash
+cd ~/Work/roundhouse
+./uninstall.sh --dry-run   # shows what it would do
+./uninstall.sh             # shows each change and asks first
+```
+
+It reverses exactly the three steps above, each with a diff and a backup: removes only the hook
+entries whose command is this folder's `hooks/emit.py` (your other hooks stay), removes the
+`~/.local/bin/roundhouse` link if it points here, and removes the `dofile` line from
+`hyprland.lua`. It also closes the window service and deletes `$XDG_RUNTIME_DIR/lot-map`. It
+keeps `~/.config/roundhouse/config.json`, the backups, and this folder, which you can delete.
+
+**By hand**, if the folder is already gone:
+
+```bash
+# 1. the hooks: drop every hook whose command ends in /hooks/emit.py (edit the path if yours differs)
+cp ~/.claude/settings.json ~/.claude/settings.json.before-roundhouse-removal
+jq '.hooks |= (with_entries(.value |= (map(.hooks |= map(select((.command // "") | endswith("/roundhouse/hooks/emit.py") | not))) | map(select(.hooks | length > 0)))) | with_entries(select(.value | length > 0)))' \
+  ~/.claude/settings.json.before-roundhouse-removal > ~/.claude/settings.json
+# 2. the command
+rm ~/.local/bin/roundhouse
+# 3. the window rules: delete the line that ends with  -- roundhouse  from ~/.config/hypr/hyprland.lua
+# 4. the log and the windows: close any roundhouse window, then
+rm -r "$XDG_RUNTIME_DIR/lot-map"
+```
+
 ## Try it without installing
 
 Nothing here touches `~/.claude/settings.json`. To see events flow, give one session a
-settings file of its own:
+settings file of its own (run from this folder):
 
 ```bash
 # 1. a settings file that points every event at the emitter
 python3 - > /tmp/roundhouse-hooks.json <<'EOF'
-import json
+import json, os
 events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
           "PostToolBatch", "PermissionRequest", "PermissionDenied", "SubagentStart", "SubagentStop",
           "Stop", "StopFailure", "PreCompact", "PostCompact", "PostModelSwitch", "Notification", "SessionEnd"]
-hook = {"type": "command", "command": "/home/YOU/Work/lot-map-linux/hooks/emit.py", "async": True}
+hook = {"type": "command", "command": os.path.abspath("hooks/emit.py"), "async": True}
 print(json.dumps({"hooks": {e: [{"hooks": [hook]}] for e in events}}, indent=1))
 EOF
 
