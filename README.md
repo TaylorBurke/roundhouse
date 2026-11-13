@@ -129,6 +129,24 @@ to each, dashed contour rings, an icon and label per station with the number of 
 under it, and the model name in the hub. Colours are properties on `MapView`, ready for the
 theme work. Icons are original line drawings.
 
+### The session header
+
+![two session windows with the strip's text on top: one working, one waiting (above), then the second working with a nearly full context (below)](docs/session-header.png)
+
+A window for one session starts with the same text as that session's
+[claude-strip](https://github.com/TaylorBurke/claude-strip): a dot for the phase, the task
+title, then `waiting for you` or the number of tools running, and the context bar with its
+percentage. So a terminal and its map are easy to pair up. Clicking the header focuses the
+terminal. The window title uses the strip's project name.
+
+It needs claude-strip with its session-strip mod from 0.4, which writes the session id into its
+state file (`tools/strip_state.py` reads those files, read-only, every two seconds while such a
+window is shown). Without it the header just names the folder and the model, and everything
+else works the same.
+
+**One thing to know:** the task title is a summary of your prompts. It is shown in the window
+and nowhere else: roundhouse never writes it to its log, and the hook emitter is unchanged.
+
 ### Context ring and the model
 
 ![the ring at 40%, 75%, 95% and over 200k](docs/context-ring.png)

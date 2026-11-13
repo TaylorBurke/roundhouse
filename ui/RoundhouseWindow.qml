@@ -12,6 +12,7 @@ FloatingWindow {
     required property var theme
     required property var settings
     required property var windows
+    required property var strips
 
     readonly property string sid: windows.sidOf(winId)
     readonly property bool all: sid === "*"
@@ -21,7 +22,9 @@ FloatingWindow {
 
     readonly property string shownSid: all ? (tail.revision >= 0 && tick >= 0 ? (Board.activeSid(tail.board, pinned, now()) || "") : "") : sid
     readonly property var session: shownSid && tail.revision >= 0 ? (tail.board.sessions[shownSid] || null) : null
-    readonly property string name: session && session.dir ? session.dir : shownSid
+    // What the session's claude-strip says (task, phase, tools, context, terminal), if there is one.
+    readonly property var strip: !all && strips.bySid[shownSid] ? strips.bySid[shownSid] : null
+    readonly property string name: strip && strip.project ? strip.project : (session && session.dir ? session.dir : shownSid)
     readonly property var sessionList: tail.revision >= 0 && tick >= 0
         ? Board.liveSessions(tail.board, now()).map(function (s) { return { sid: s.sid, name: s.dir || s.sid, idle: now() - s.lastTs }; })
         : []
@@ -98,15 +101,22 @@ FloatingWindow {
             onCycle: dir => win.cycle(dir)
         }
 
-        // A session's own window: who it is for (the strip's text replaces this in the next step)
-        Text {
+        // A session's own window: the strip's text, so it is plain which terminal it belongs to
+        StripHeader {
             anchors.fill: parent
             visible: !win.all
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-            color: theme.inkStrong; font.family: "monospace"; font.pixelSize: 12; font.bold: true
-            text: (win.name || "no session") + (win.session && win.session.model ? "  " + win.session.model : "")
-                  + (win.session && win.session.ended ? "  (ended)" : "")
+            info: win.strip
+            name: win.name
+            model: win.session ? win.session.model : ""
+            ended: win.session ? win.session.ended : false
+            ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert
+            // A click focuses the terminal. The address was checked by the reader and is checked
+            // again here, so nothing but a window address can reach the command.
+            onActivate: {
+                var a = win.strip ? win.strip.address : "";
+                if (/^0x[0-9a-f]{1,16}$/.test(a))
+                    Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
+            }
         }
     }
 

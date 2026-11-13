@@ -9,6 +9,8 @@ ShellRoot {
     Settings { id: sharedSettings }
     LogTail { id: sharedTail }
     Windows { id: sharedWindows; tail: sharedTail }
+    // read the strip's files only while a window for one session is shown
+    StripState { id: sharedStrips; active: sharedWindows.entries.some(e => e.sid !== "*") }
 
     Variants {
         model: sharedWindows.ids
@@ -19,6 +21,7 @@ ShellRoot {
             theme: sharedTheme
             settings: sharedSettings
             windows: sharedWindows
+            strips: sharedStrips
         }
     }
 }
