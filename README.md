@@ -20,7 +20,7 @@ into your Claude Code settings.
 | 1 | Research and design ([docs/DESIGN.md](docs/DESIGN.md)) | done |
 | 2 | Hook emitter and terminal log viewer | done |
 | 3 | Window with the static map and live pulses | done, for review |
-| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7), error dots, clock hands and parallel lanes (#8) done; rest next |
+| 4 | Context ring, route line, error dots, background tasks, subagents, theme | context ring (#6), route line and worn spokes (#7), error dots, clock hands and parallel lanes (#8), background tasks and subagents (#9) done; rest next |
 | 5 | Install and uninstall scripts | |
 
 ## How it works
@@ -159,6 +159,19 @@ call is a hint, around sixty is full.
   many run at once.
 
 ![three parallel calls leaving the hub together](docs/parallel-lanes.png)
+
+### Background tasks and subagents
+
+![a subagent orbiting Agents, its call leaving from there](docs/subagent-orbit.png)
+
+- A call that started a background task keeps its station lit, with clock hands, after its own
+  turn is over: until the task reports back, or until an answer arrives that no longer lists it
+  as running. A task that failed leaves a red dot.
+- Each running subagent is a small dot circling the Agents station, and the calls it makes fly
+  out from Agents instead of from the hub. Claude Code's own internal agents, which end without
+  ever starting, are ignored.
+
+![Shell kept lit by a background task](docs/background-task.png)
 
 ### Pulses and the feed
 

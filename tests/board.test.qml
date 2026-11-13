@@ -223,6 +223,38 @@ QtObject {
         check("running info", Board.runningInfo(sess(b)), { files: { n: 2, since: 10 } });
         check("running info null", Board.runningInfo(null), {});
 
+        // background tasks: lit after their turn until task_end or a stop that no longer lists them
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "tool_start", id: "g", station: "shell", label: "sleep", tool: "Bash", bg: true }));
+        Board.fold(b, ev({ ts: 1.1, ev: "tool_end", id: "g", station: "shell", label: "sleep", tool: "Bash", status: "ok", task: "t1" }));
+        Board.fold(b, ev({ ts: 2, ev: "stop", bg: [{ id: "t1", type: "shell", status: "running" }] }));
+        check("task lit after the turn", [sess(b).stations.shell.running, Board.runningInfo(sess(b)).shell.since], [1, 1]);
+        Board.fold(b, ev({ ts: 3, ev: "task_end", task: "t1", status: "ok" }));
+        check("task_end puts it out", sess(b).stations.shell.running, 0);
+        Board.fold(b, ev({ ts: 4, ev: "tool_end", id: "g2", station: "shell", label: "x", tool: "Bash", status: "ok", task: "t2" }));
+        Board.fold(b, ev({ ts: 5, ev: "stop", bg: [] }));
+        check("stop without it ends it", sess(b).stations.shell.running, 0);
+        Board.fold(b, ev({ ts: 6, ev: "tool_end", id: "g3", station: "shell", label: "x", tool: "Bash", status: "ok", task: "t3" }));
+        Board.fold(b, ev({ ts: 5.5, ev: "stop", bg: [] }));
+        check("earlier stop leaves a newer task", sess(b).stations.shell.running, 1);
+        Board.fold(b, ev({ ts: 7, ev: "task_end", task: "t3", status: "err" }));
+        check("failed task leaves a dot", [sess(b).stations.shell.running, sess(b).errDots.shell], [0, 1]);
+
+        // subagents: a running one counts, an end with no start is ignored, a background one ends its task
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "agent_start", type: "Explore", agent: "a1" }));
+        check("agents running", Board.runningAgents(sess(b)), 1);
+        var rowsBefore = sess(b).entries.length;
+        Board.fold(b, ev({ ts: 2, ev: "agent_end", type: "", agent: "internal1" }));
+        Board.fold(b, ev({ ts: 2.1, ev: "agent_end", type: "Explore", agent: "never-started" }));
+        check("unmatched end ignored", [sess(b).entries.length, Board.runningAgents(sess(b))], [rowsBefore, 1]);
+        Board.fold(b, ev({ ts: 3, ev: "agent_start", type: "", agent: "x" }));
+        check("typeless start ignored", Board.runningAgents(sess(b)), 1);
+        Board.fold(b, ev({ ts: 4, ev: "tool_end", id: "ag", station: "agents", label: "sub", tool: "Agent", status: "ok", task: "a1" }));
+        check("background agent is a task", sess(b).stations.agents.running, 1);
+        Board.fold(b, ev({ ts: 5, ev: "agent_end", type: "Explore", agent: "a1" }));
+        check("its end ends the task", [Board.runningAgents(sess(b)), sess(b).stations.agents.running], [0, 0]);
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }

@@ -74,6 +74,10 @@ function recount(sess) {
         else if (e.status === "blocked") c.blocked++;
         else if (e.status === "err") c.errors++;
     });
+    Object.keys(sess.tasks).forEach(function (id) {      // a background task keeps its station lit
+        var t = sess.tasks[id], c = sess.stations[t.station];
+        if (t.status === "running" && c) c.running++;
+    });
 }
 
 // A batch or a stop means every call that started before it has finished. One still open was
@@ -138,7 +142,7 @@ function applyTool(sess, ev, ending) {
     entry.interrupt = !!ev.interrupt;
     if (ev.task) {
         entry.task = ev.task;
-        sess.tasks[ev.task] = { station: ev.station, label: ev.label, status: "running" };
+        sess.tasks[ev.task] = { station: ev.station, label: ev.label, status: "running", since: entry.ts };
     }
 }
 
@@ -167,13 +171,22 @@ function fold(board, ev) {
         note(sess, ev, "you", "new message");
     } else if (kind === "task_end") {
         var task = sess.tasks[ev.task];
-        if (task) task.status = ev.status === "err" ? "err" : "ok";
+        if (task && task.status === "running") {
+            task.status = ev.status === "err" ? "err" : "ok";
+            if (task.status === "err") dot(sess, task.station, 1);
+        }
         note(sess, ev, task ? task.station : "shell", "background task " + (ev.status === "err" ? "failed" : "done"), ev.status === "err" ? "err" : "ok");
     } else if (kind === "batch") {
         closeOpen(sess, ev);
         note(sess, ev, "model", "next step");
     } else if (kind === "stop") {
         closeOpen(sess, ev);
+        var listed = {};
+        (ev.bg || []).forEach(function (t) { if (t && t.id) listed[t.id] = true; });
+        Object.keys(sess.tasks).forEach(function (id) {     // started before this stop, not listed: finished
+            var t = sess.tasks[id];
+            if (t.status === "running" && t.since <= ev.ts && !listed[id]) t.status = "ok";
+        });
         note(sess, ev, "you", "answer ready");
     } else if (kind === "stop_error") {
         note(sess, ev, "model", "stopped: " + (ev.error || "error"), "err");
@@ -185,11 +198,17 @@ function fold(board, ev) {
         else if (!denied) dot(sess, "hooks", 1);
         note(sess, ev, "hooks", "denied: " + (ev.tool || ""), "err");
     } else if (kind === "agent_start") {
-        sess.agents[ev.agent] = { type: ev.type, running: true };
-        note(sess, ev, "agents", (ev.type || "agent") + " started");
+        if (ev.agent && ev.type) {
+            sess.agents[ev.agent] = { type: ev.type, running: true };
+            note(sess, ev, "agents", ev.type + " started");
+        }
     } else if (kind === "agent_end") {
-        if (sess.agents[ev.agent]) sess.agents[ev.agent].running = false;
-        note(sess, ev, "agents", (ev.type || "agent") + " finished");
+        var agent = sess.agents[ev.agent];          // an end with no matching start is an internal agent
+        if (agent) {
+            agent.running = false;
+            if (sess.tasks[ev.agent] && sess.tasks[ev.agent].status === "running") sess.tasks[ev.agent].status = "ok";
+            note(sess, ev, "agents", agent.type + " finished");
+        }
     } else if (kind === "compact_start") {
         note(sess, ev, "model", "compacting", "running");
     } else if (kind === "compact_end") {
@@ -273,7 +292,20 @@ function runningInfo(sess) {
         r.n++;
         if (e.ts < r.since) r.since = e.ts;
     });
+    Object.keys(sess.tasks).forEach(function (id) {
+        var t = sess.tasks[id];
+        if (t.status !== "running") return;
+        var r = info[t.station] || (info[t.station] = { n: 0, since: t.since });
+        r.n++;
+        if (t.since < r.since) r.since = t.since;
+    });
     return info;
+}
+
+// How many subagents are running, for the dots that orbit the Agents station.
+function runningAgents(sess) {
+    if (!sess) return 0;
+    return Object.keys(sess.agents).filter(function (id) { return sess.agents[id].running; }).length;
 }
 
 function compacting(sess) {
@@ -312,4 +344,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
