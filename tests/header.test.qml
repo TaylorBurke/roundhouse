@@ -32,7 +32,6 @@ Item {
             h.name = "alpha"; h.model = "claude-sonnet-5-5";
             compare(item("title").text, "alpha");
             compare(item("statusText").text, "claude-sonnet-5-5");
-            compare(item("contextRow").visible, false);
             compare(item("dot").color.toString(), "#4a5164");
             h.ended = true;
             compare(item("statusText").text, "claude-sonnet-5-5  (ended)");
@@ -45,10 +44,7 @@ Item {
             compare(item("title").text, "fixing the login redirect loop");
             compare(item("statusText").text, "2 tools running");
             compare(item("dot").color.toString(), "#e0a458");
-            compare(item("contextRow").visible, true);
-            compare(item("contextText").text, "40%");
-            fuzzyCompare(item("contextFill").width, 44 * 0.4, 0.5);
-            compare(item("contextFill").color.toString(), "#e0a458");
+            compare(item("contextRow"), null);   // the map's hub already shows the context
         }
         function test_one_tool_and_none() {
             h.info = strip({ running: 1 });
@@ -62,13 +58,6 @@ Item {
             compare(item("statusText").text, "waiting for you");
             compare(item("statusText").color.toString(), "#f7768e");
             compare(item("dot").color.toString(), "#f7768e");
-            compare(item("contextRow").visible, false);
-        }
-        function test_a_full_context_is_red_and_an_unknown_one_is_hidden() {
-            h.info = strip({ context: 90 });
-            compare(item("contextFill").color.toString(), "#f7768e");
-            h.info = strip({ context: -1 });
-            compare(item("contextRow").visible, false);
         }
         function test_title_falls_back_to_the_project_then_the_name() {
             h.name = "folder";
@@ -89,7 +78,7 @@ Item {
             verify(item("status").y >= item("title").y + item("title").height);
             verify(h.height >= item("status").y + item("status").height + 2);
             var withStatus = h.height;
-            h.info = strip({ running: 0, context: -1 });
+            h.info = strip({ running: 0 });
             compare(item("status").visible, false);
             verify(h.height < withStatus);
         }

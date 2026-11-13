@@ -3,8 +3,8 @@ import QtQuick
 // The top of a session's window, made to look like that session's claude-strip: a darker band
 // across the whole width with a 2px divider under it (red while the session waits for you). In
 // it: a dot for the phase and the task title (up to two lines, so a long title is readable), and
-// under that "waiting for you" or the number of tools running, and the context bar with its
-// percentage. A click asks the parent to focus the terminal. With no strip to copy, it shows the
+// under that "waiting for you" or the number of tools running. (No context bar: the map's hub
+// already shows it.) A click asks the parent to focus the terminal. With no strip to copy, it shows the
 // folder name and model.
 Item {
     id: root
@@ -26,8 +26,7 @@ Item {
     readonly property int dividerHeight: 2
     readonly property string statusLine: info ? (waiting ? "waiting for you" : running > 0 ? toolsText(running) : "")
                                               : (model + (ended ? "  (ended)" : "")).trim()
-    readonly property bool contextShown: info !== null && !waiting && context >= 0
-    readonly property bool hasStatus: statusLine !== "" || contextShown
+    readonly property bool hasStatus: statusLine !== ""
     implicitHeight: 8 + title.implicitHeight + (hasStatus ? 5 + statusRow.height : 0) + 8 + dividerHeight
     height: implicitHeight
 
@@ -35,7 +34,6 @@ Item {
     readonly property string phase: info ? info.phase : "idle"
     readonly property bool waiting: phase === "waiting"
     readonly property int running: info ? info.running : 0
-    readonly property int context: info ? info.context : -1
     readonly property string title: info ? (info.task || info.project || name) : (name || "no session")
     readonly property color dotColor: waiting ? alert : phase === "working" ? accent : faint
 
@@ -87,31 +85,6 @@ Item {
             text: root.statusLine
             color: root.waiting ? root.alert : root.faint
             font.family: "monospace"; font.pixelSize: 11
-        }
-        Row {
-            id: contextRow
-            objectName: "contextRow"
-            anchors.verticalCenter: parent.verticalCenter
-            visible: root.contextShown
-            spacing: 6
-            Rectangle {
-                id: track
-                anchors.verticalCenter: parent.verticalCenter
-                width: 44; height: 6; radius: 3
-                color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.18)
-                Rectangle {
-                    objectName: "contextFill"
-                    visible: root.context > 0
-                    width: Math.max(track.height, track.width * Math.min(root.context, 100) / 100); height: parent.height; radius: 3
-                    color: root.context >= 85 ? root.alert : root.accent
-                }
-            }
-            Text {
-                objectName: "contextText"
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.context + "%"
-                color: root.faint; font.family: "monospace"; font.pixelSize: 11
-            }
         }
     }
 
