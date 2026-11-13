@@ -452,4 +452,98 @@ Item {
             font.family: "monospace"; font.pixelSize: Math.max(8, root.unit * 0.028)
         }
     }
+
+    // ---- tooltips ---------------------------------------------------------------------------
+    // Hover a station (or the hub) for what it stands for, its counts, and, when it wears a red
+    // badge, which calls are behind it. It shows after a short pause and follows the live data.
+    property string hoverKey: ""          // the station under the pointer, "hub" for the hub, else ""
+    property bool tipShown: false
+    onHoverKeyChanged: { tipShown = false; if (hoverKey !== "") tipDelay.restart(); else tipDelay.stop(); }
+    Timer { id: tipDelay; interval: 350; onTriggered: root.tipShown = true }
+
+    function tipFor(key) {
+        if (key === "hub") {
+            var c = context;
+            return { title: "Context window",
+                     help: "How much of the model's context window this session has used. The ring turns amber from 70% and red from 90%; the oldest turns are compacted when it fills.",
+                     stats: c ? [percentLabel() + (c.stale ? " (out of date: a compaction since the last reading)" : "")] : ["no reading yet"],
+                     dots: 0, problems: [], explain: "" };
+        }
+        return Board.report(session, key, 4);
+    }
+    readonly property var tip: tipShown && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
+    readonly property point tipAnchor: indexOf(hoverKey) >= 0 ? pos(indexOf(hoverKey)) : Qt.point(cx, cy)
+
+    Repeater {
+        model: root.stations
+        MouseArea {
+            required property int index
+            required property var modelData
+            x: root.pos(index).x - root.discR * 1.5; y: root.pos(index).y - root.discR * 1.2
+            width: root.discR * 3; height: root.discR * 3.8
+            hoverEnabled: true; acceptedButtons: Qt.NoButton
+            onEntered: root.hoverKey = modelData.key
+            onExited: if (root.hoverKey === modelData.key) root.hoverKey = ""
+        }
+    }
+    MouseArea {
+        x: root.cx - root.hubR; y: root.cy - root.hubR; width: root.hubR * 2; height: root.hubR * 2
+        hoverEnabled: true; acceptedButtons: Qt.NoButton
+        onEntered: root.hoverKey = "hub"
+        onExited: if (root.hoverKey === "hub") root.hoverKey = ""
+    }
+
+    Rectangle {
+        id: tipBox
+        objectName: "tooltip"
+        z: 100
+        visible: root.tip !== null
+        readonly property bool below: root.tipAnchor.y < root.height * 0.45
+        width: Math.min(root.width - 16, 260)
+        height: tipCol.implicitHeight + 16
+        x: Math.max(8, Math.min(root.width - width - 8, root.tipAnchor.x - width / 2))
+        y: Math.max(4, below ? root.tipAnchor.y + root.discR * 2.7 : root.tipAnchor.y - root.discR * 1.7 - height)
+        radius: 6
+        color: Qt.darker(root.bg, 1.4); border.color: root.discEdge; border.width: 1
+        Column {
+            id: tipCol
+            x: 8; y: 8; width: parent.width - 16
+            spacing: 5
+            Text {
+                width: parent.width
+                text: root.tip ? root.tip.title : ""
+                color: root.inkStrong; font.family: "monospace"; font.bold: true; font.pixelSize: 12
+            }
+            Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.tip ? root.tip.help : ""
+                color: root.ink; wrapMode: Text.Wrap; font.family: "monospace"; font.pixelSize: 11
+            }
+            Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.tip ? root.tip.stats.join("  ·  ") : ""
+                color: root.faint; wrapMode: Text.Wrap; font.family: "monospace"; font.pixelSize: 11
+            }
+            Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.tip ? root.tip.explain : ""
+                color: root.alert; wrapMode: Text.Wrap; font.family: "monospace"; font.pixelSize: 11
+            }
+            Repeater {
+                model: root.tip ? root.tip.problems : []
+                Text {
+                    required property var modelData
+                    width: tipCol.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: (modelData.kind === "refused" ? "⊘ refused  " : "✕ failed  ")
+                          + (modelData.station !== root.hoverKey ? (Board.report(null, modelData.station).title) + ": " : "") + modelData.label
+                    color: root.alert; font.family: "monospace"; font.pixelSize: 11
+                }
+            }
+        }
+    }
 }

@@ -171,6 +171,10 @@ function fold(board, ev) {
     } else if (kind === "prompt") {
         sess.switched = false;
         sess.errDots = {};
+        sess.promptTs = ev.ts;
+        // The red dots were just cleared, so the calls behind them stop counting: a late end for
+        // one of them must not take a dot off the new count.
+        sess.entries.forEach(function (e) { if (e.dotted) e.dotted = "cleared"; });
         note(sess, ev, "you", "new message");
     } else if (kind === "task_end") {
         var task = sess.tasks[ev.task];
@@ -342,6 +346,61 @@ function runningInfo(sess) {
     return info;
 }
 
+// What each station stands for, in a sentence, for the hover tooltip.
+var HELP = {
+    you: "Your messages, and what Claude asks of you: questions, files, notifications.",
+    model: "Claude's own steps between tool calls, compaction and model switches.",
+    memory: "Reads and writes of Claude's memory files.",
+    files: "File tools (Read, Edit, Write, Grep, Glob) and shell commands that only touch files.",
+    shell: "Shell commands, and any tool that fits nowhere else.",
+    network: "Web fetch and search, network commands, and other MCP servers.",
+    browser: "Browser automation: pages Claude opens or drives.",
+    agents: "Subagents and background workflows. Each running subagent circles this node.",
+    skills: "Skills Claude invokes, and tools it loads on demand.",
+    hooks: "Refusals: a call that was denied or stopped before it finished, from any station. Also permission asks."
+};
+
+// The red dots, explained: the calls behind a station's badge since the last prompt, newest first,
+// at most `max`. A refused call counts at its own station and at Hooks, so the same call shows up
+// under both. Names come from the log (names only), and are shown on screen, never written.
+function problems(sess, key, max) {
+    if (!sess) return [];
+    var since = sess.promptTs || 0, out = [], notes = [];
+    sess.entries.forEach(function (e) {
+        if (e.ts < since) return;
+        if (e.dotted === "block") {
+            if (key === "hooks" || e.station === key) out.push({ kind: "refused", station: e.station, label: e.label });
+        } else if (e.station === "hooks" && e.status === "err") {
+            notes.push({ kind: "refused", station: "hooks", label: e.label });       // a denial with no call of its own
+        } else if (e.station === key && e.status === "err") {
+            out.push({ kind: "failed", station: e.station, label: e.label });
+        }
+    });
+    if (key === "hooks") {      // a denied call is also a blocked entry above; only the surplus is listed from notes
+        var extra = (sess.errDots.hooks || 0) - out.length;
+        if (extra > 0) out = out.concat(notes.slice(-extra));
+    }
+    return out.reverse().slice(0, max || 4);
+}
+
+// Everything the tooltip says about one station.
+function report(sess, key, max) {
+    var s = sess && sess.stations[key];
+    var dots = sess && sess.errDots[key] || 0;
+    var r = { title: LABELS[key] || key, help: HELP[key] || "", stats: [], dots: dots, problems: problems(sess, key, max), explain: "" };
+    if (!s) return r;
+    if (s.count > 0) r.stats.push(s.count + " of the last " + MAX_ENTRIES + " events");
+    var uses = sess.uses[key] || 0;
+    if (uses > 0) r.stats.push(uses + (uses === 1 ? " call" : " calls") + " this session");
+    if (s.running > 0) r.stats.push(s.running + " running now");
+    if (dots > 0) {
+        r.explain = key === "hooks"
+            ? "Red " + dots + ": " + dots + " call" + (dots === 1 ? " was" : "s were") + " refused or denied since your last message. The same calls show on their own stations."
+            : "Red " + dots + ": " + dots + " call" + (dots === 1 ? "" : "s") + " failed or " + (dots === 1 ? "was" : "were") + " refused (stopped before finishing) since your last message. Refused calls also count at Hooks.";
+    }
+    return r;
+}
+
 // How many subagents are running, for the dots that orbit the Agents station.
 function runningAgents(sess) {
     if (!sess) return 0;
@@ -384,4 +443,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, report: report, problems: problems, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
