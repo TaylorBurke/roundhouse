@@ -104,6 +104,10 @@ Item {
         return !context ? "" : (context.stale ? "\u2013" : Math.round(context.share * 100)) + "% of " + sizeLabel(context.size);
     }
     onContextChanged: ring.requestPaint()
+    // changes whenever any station's use count does, so the spokes are redrawn then
+    readonly property string wearSig: revision >= 0 && session
+        ? Object.keys(session.uses).map(function (k) { return k + session.uses[k]; }).join() : ""
+    onWearSigChanged: canvas.requestPaint()
 
     function modelName() {
         var m = revision >= 0 && session ? session.model : "";
@@ -148,10 +152,12 @@ Item {
                 c.stroke();
             });
             c.setLineDash([]);
-            // spokes, hub edge to station edge
-            c.strokeStyle = root.line; c.lineWidth = 1.2;
+            // spokes, hub edge to station edge; the more a station is used, the thicker and brighter
             for (var i = 0; i < 10; i++) {
                 var p = root.pos(i), dx = p.x - root.cx, dy = p.y - root.cy, d = Math.sqrt(dx * dx + dy * dy);
+                var w = Board.wear(root.session, root.stations[i].key), a = root.line, b = root.ink;
+                c.strokeStyle = Qt.rgba(a.r + (b.r - a.r) * w, a.g + (b.g - a.g) * w, a.b + (b.b - a.b) * w, 1);
+                c.lineWidth = 1.2 + 2.4 * w;
                 c.beginPath();
                 c.moveTo(root.cx + dx / d * root.hubR, root.cy + dy / d * root.hubR);
                 c.lineTo(p.x - dx / d * root.discR, p.y - dy / d * root.discR);
@@ -169,6 +175,52 @@ Item {
             c.beginPath(); c.arc(root.cx, root.cy, root.hubR, 0, 2 * Math.PI);
             c.fillStyle = root.disc; c.fill();
             c.strokeStyle = root.accent; c.lineWidth = 1.6; c.stroke();
+        }
+    }
+
+    // the route line: a thin curve joining the stations the main loop visited last. The newest
+    // leg draws itself; a leg holds for 40 s and fades over 20. Time passes without events, so
+    // a timer repaints while any leg is showing.
+    Canvas {
+        id: route
+        anchors.fill: parent
+        property bool live: false          // some leg is still visible
+        property bool drawing: false       // the newest leg is still drawing itself
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+        Connections { target: root; function onRevisionChanged() { route.requestPaint(); } }
+        Timer {
+            interval: route.drawing ? 33 : 500
+            running: route.live; repeat: true
+            onTriggered: route.requestPaint()
+        }
+        onPaint: {
+            var c = getContext("2d");
+            c.reset();
+            var legs = Board.routeLegs(root.session, Date.now() / 1000);
+            live = legs.length > 0;
+            drawing = live && legs[legs.length - 1].age < 0.8;
+            var tint = root.accent;
+            legs.forEach(function (leg, n) {
+                var a = root.pos(root.indexOf(leg.from)), b = root.pos(root.indexOf(leg.to));
+                var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+                var kx = mx + (root.cx - mx) * 0.3, ky = my + (root.cy - my) * 0.3;   // bow towards the hub
+                var newest = n === legs.length - 1, reach = newest ? Math.min(1, leg.age / 0.6) : 1;
+                var steps = Math.max(2, Math.round(28 * reach)), x = a.x, y = a.y;
+                c.beginPath(); c.moveTo(a.x, a.y);
+                for (var k = 1; k <= steps; k++) {
+                    var t = reach * k / steps, u = 1 - t;
+                    x = u * u * a.x + 2 * u * t * kx + t * t * b.x;
+                    y = u * u * a.y + 2 * u * t * ky + t * t * b.y;
+                    c.lineTo(x, y);
+                }
+                c.strokeStyle = Qt.rgba(tint.r, tint.g, tint.b, 0.6 * leg.alpha);
+                c.lineWidth = 1.5; c.lineCap = "round"; c.stroke();
+                if (newest) {
+                    c.beginPath(); c.arc(x, y, 2.6, 0, 2 * Math.PI);
+                    c.fillStyle = Qt.rgba(tint.r, tint.g, tint.b, leg.alpha); c.fill();
+                }
+            });
         }
     }
 

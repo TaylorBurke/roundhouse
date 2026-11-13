@@ -173,6 +173,25 @@ QtObject {
         Board.fold(b, ev({ ts: 5, ev: "context", tokens: 20000, model: "claude-sonnet-5-5" }));
         check("fresh after compact", [Board.contextOf(sess(b), 0).stale, Board.contextOf(sess(b), 0).share], [false, 0.1]);
 
+        // route line: main loop only, no repeats, last 7 stations, legs hold 40 s then fade over 20 s
+        b = Board.newBoard();
+        var seq = ["files", "files", "shell", "files", "network", "browser", "skills", "memory", "hooks"];
+        seq.forEach(function (st, k) { Board.fold(b, ev({ ts: 100 + k, ev: "tool_start", id: "r" + k, station: st, label: "x", tool: "T" })); });
+        Board.fold(b, ev({ ts: 120, ev: "tool_start", id: "sub", station: "agents", label: "x", tool: "T", agent: "a1" }));
+        check("route", sess(b).route.map(function (r) { return r.station; }), ["shell", "files", "network", "browser", "skills", "memory", "hooks"]);
+        check("route legs", Board.routeLegs(sess(b), 109).length, 6);
+        check("leg fresh", Board.routeLegs(sess(b), 108)[5].alpha, 1);
+        check("leg fading", [Board.routeLegs(sess(b), 108 + 40 + 10)[5].alpha, Board.routeLegs(sess(b), 108 + 40 + 10).length], [0.5, 6]);
+        check("old legs go first", Board.routeLegs(sess(b), 103 + 61).length, 4);
+        check("leg gone", Board.routeLegs(sess(b), 108 + 61).length, 0);
+        check("no sess", Board.routeLegs(null, 1), []);
+        // wear: counts every call (subagents too), on a log scale
+        check("uses", [sess(b).uses.files, sess(b).uses.agents, sess(b).uses.network], [3, 1, 1]);
+        check("wear", [Board.wear(sess(b), "hooks") > 0, Board.wear(sess(b), "files") > Board.wear(sess(b), "shell"), Board.wear(sess(b), "you")], [true, true, 0]);
+        b = Board.newBoard();
+        for (i = 0; i < 80; i++) Board.fold(b, ev({ ts: 1 + i, ev: "tool_end", id: "w" + i, station: "files", label: "x", tool: "T", status: "ok" }));
+        check("wear caps", Board.wear(sess(b), "files"), 1);
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }
