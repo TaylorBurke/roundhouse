@@ -134,6 +134,17 @@ marked blocked. A `batch` or `stop` only blocks calls that started before it and
 the same agent. The `model` event wins over `context`'s model name until the next prompt.
 A background call is judged like any other: its own `tool_end` arrives within milliseconds of launch (only the task keeps running), so one still open at the next `batch` was refused. (Stage 3 first exempted background calls; the recorded session showed a refused one glowing forever.)
 
+## Windows (stage 5)
+
+One Quickshell process (`quickshell -n`, so a second launch does nothing) runs a window per
+entry of `windows.json`, an array of `{id, sid}`. `id` is the window's own and stable; `sid` is
+what it shows (`*` is the all-sessions window), so `rebind` after a `/clear` changes `sid` and
+the window stays where it is. The file is written by `tools/windows.py` under a lock and
+replaced atomically, so the service watches it and also re-reads it every two seconds. The
+service quits 1.5 s after the set becomes empty. Two Quickshell facts found the hard way:
+`Qt.resolvedUrl` outside the config folder gives `qrc:/qs-blackhole` (use `Quickshell.shellPath`),
+and a `FloatingWindow` closed by the compositor reports it as `visible` becoming false.
+
 ## Renderer choice
 
 Quickshell: already installed, no build step, QML drawing, and the theme can be followed

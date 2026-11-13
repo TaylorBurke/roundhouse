@@ -117,6 +117,14 @@ QtObject {
         check("cycle with none", Board.cycleSid(Board.newBoard(), "x", 1, 1), "x");
         check("idle label", [Board.idleLabel(3), Board.idleLabel(40), Board.idleLabel(300), Board.idleLabel(7300)], ["now", "40s", "5m", "2h"]);
 
+        // why a session ended is kept: a /clear is not the end of the conversation
+        b = Board.newBoard();
+        Board.fold(b, { sid: "e", ts: 1, ev: "session", dir: "x" });
+        Board.fold(b, { sid: "e", ts: 2, ev: "session_end", reason: "clear" });
+        check("end reason", [sess(b, "e").ended, sess(b, "e").endReason], [true, "clear"]);
+        Board.fold(b, { sid: "e", ts: 3, ev: "session", dir: "x" });
+        check("end reason resets", [sess(b, "e").ended, sess(b, "e").endReason], [false, ""]);
+
         // model event beats a stale context reading until the next prompt
         b = Board.newBoard();
         Board.fold(b, ev({ ts: 1, ev: "context", tokens: 100, model: "sonnet" }));

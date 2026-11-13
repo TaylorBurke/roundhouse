@@ -1,4 +1,17 @@
 #!/bin/sh
-# Open the roundhouse window. Closing the window ends the process.
+# roundhouse [show|hide|toggle [SID]] | rebind OLD NEW | list
+# With no argument: show the all-sessions window. The windows that are shown are listed in
+# $XDG_RUNTIME_DIR/lot-map/windows.json (see tools/windows.py); one background process runs
+# them, starts here when something is to be shown, and ends by itself when nothing is.
 here=$(dirname "$(readlink -f "$0")")
-exec quickshell -p "$here/../ui" "$@"
+root="$here/.."
+action=${1:-show}
+[ $# -gt 0 ] && shift
+shown=$(python3 -I "$root/tools/windows.py" "$action" "$@") || exit $?
+if [ "$action" = list ]; then
+    printf '%s\n' "$shown"
+    exit 0
+fi
+# -n: do nothing if the service is already running; it picks the change up from the file.
+[ -n "$shown" ] && setsid -f quickshell -n -p "$root/ui" >/dev/null 2>&1
+exit 0
