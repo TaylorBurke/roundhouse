@@ -1,0 +1,18 @@
+Live check, 2026-11-13: a session window follows its terminal to another workspace.
+
+A throwaway foot terminal (app id roundhouse-follow-demo) with a fake claude-strip state file for
+session demo0001, and `roundhouse show demo0001`. The terminal was moved with hyprctl; nothing
+else was touched, and the demo window, terminal and state file were removed afterwards.
+
+before:
+   roundhouse-follow-demo 'foot' ws 11
+   org.quickshell 'roundhouse: followdemo · demo0001' ws 11
+moving the demo terminal 11 -> 12
+after move (6 s later):
+   roundhouse-follow-demo 'foot' ws 12
+   org.quickshell 'roundhouse: followdemo · demo0001' ws 12
+moving back 12 -> 11
+after move back (6 s later):
+   roundhouse-follow-demo 'foot' ws 11
+   org.quickshell 'roundhouse: followdemo · demo0001' ws 11
+Focus stayed on the user's own window throughout (move with follow = false).

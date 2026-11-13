@@ -65,6 +65,15 @@ class Address(unittest.TestCase):
         self.assertEqual(strip_state.window_address(ME, {parent: {"address": "0x55aa11"}}), "0x55aa11")
         self.assertIsNone(strip_state.window_address(ME, {}))
 
+    def test_the_terminals_workspace_is_found_the_same_way(self):
+        parent = strip_state.parent_of(ME)
+        self.assertEqual(strip_state.window_workspace(ME, {parent: {"workspace": {"id": 12}}}), 12)
+        self.assertIsNone(strip_state.window_workspace(ME, {}))
+
+    def test_a_special_or_odd_workspace_is_none(self):
+        for bad in ({"id": -98}, {"id": 0}, {"id": "3"}, {"id": True}, {"id": None}, {}, None, 7):
+            self.assertIsNone(strip_state.window_workspace(ME, {ME: {"workspace": bad}}), bad)
+
     def test_a_malformed_address_is_dropped(self):
         for bad in ("0xZZ", "address:0x1", "0x1; do-something", "", 5, None):
             self.assertIsNone(strip_state.window_address(ME, {ME: {"address": bad}}), bad)

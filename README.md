@@ -208,9 +208,11 @@ starts it when something is to be shown, and it ends by itself when nothing is.
 - **The all-sessions window** has the switcher and follows whichever session is most recently
   active (see "Several sessions"). It floats on every workspace. In it, `w` opens the session
   on show in a window of its own.
-- **A window for one session** is fixed to it (no switcher), is titled `roundhouse: <folder>`,
+- **A window for one session** is fixed to it (no switcher), is titled `roundhouse: <folder> · <id>`,
   and is **not** pinned: it opens on the workspace you are on and stays there, so switching
-  workspace hides it. It closes itself when its session ends. A `/clear` is not an end: the
+  workspace hides it. It **follows its terminal**: when the terminal is moved to another workspace,
+  the window goes along (quietly, within a couple of seconds, without taking the focus); one you
+  placed by hand stays put until the terminal moves. It closes itself when its session ends. A `/clear` is not an end: the
   session id changes, and `roundhouse rebind OLD NEW` moves the window to the new one, in
   place. Closing a window with the window manager takes it out of the set.
 - The session id is the first 8 characters of Claude Code's, as `roundhouse list` shows.

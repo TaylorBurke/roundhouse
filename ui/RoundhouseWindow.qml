@@ -33,7 +33,20 @@ FloatingWindow {
     Timer { interval: 20000; running: true; repeat: true; onTriggered: win.tick++ }
 
     // Only a window for a session can be unpinned and named for it; the all-sessions one keeps its title.
-    title: all ? "roundhouse" : "roundhouse: " + (name || "session")
+    // The session's id ends the title so no two windows share one (follow.py finds a window by it).
+    title: all ? "roundhouse" : "roundhouse: " + (name || "session") + " · " + sid
+
+    // When the session's terminal is moved to another workspace, this window goes along. Only a
+    // change in the terminal's workspace moves it, so a window you placed by hand stays put until
+    // then. It follows quietly, without taking the focus. (The strip state is read every 2 s.)
+    readonly property int terminalWorkspace: strip && typeof strip.workspace === "number" ? strip.workspace : 0
+    property int lastTerminalWorkspace: 0
+    onTerminalWorkspaceChanged: {
+        if (terminalWorkspace <= 0) return;
+        if (lastTerminalWorkspace > 0 && terminalWorkspace !== lastTerminalWorkspace)
+            Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/follow.py"), win.title, String(terminalWorkspace)]);
+        lastTerminalWorkspace = terminalWorkspace;
+    }
     implicitWidth: 360
     implicitHeight: 680
     visible: true
