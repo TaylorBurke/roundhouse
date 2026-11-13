@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import "board.js" as Board
+import "follow.js" as Follow
 
 // One roundhouse window. The all-sessions one (sid "*") has the switcher and follows whichever
 // session is active; any other is fixed to its session, so a terminal and its map belong together.
@@ -42,10 +43,12 @@ FloatingWindow {
     readonly property int terminalWorkspace: strip && typeof strip.workspace === "number" ? strip.workspace : 0
     property int lastTerminalWorkspace: 0
     onTerminalWorkspaceChanged: {
-        if (terminalWorkspace <= 0) return;
-        if (lastTerminalWorkspace > 0 && terminalWorkspace !== lastTerminalWorkspace)
-            Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/follow.py"), win.title, String(terminalWorkspace)]);
-        lastTerminalWorkspace = terminalWorkspace;
+        var d = Follow.step(lastTerminalWorkspace, terminalWorkspace);
+        // follow.py finds the window by the session id that ends its title, so a folder name that
+        // changes at the same moment cannot make it miss.
+        if (d.move && !win.all)     // the all-sessions window has no terminal of its own to follow
+            Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/follow.py"), win.sid, String(terminalWorkspace)]);
+        lastTerminalWorkspace = d.last;
     }
     implicitWidth: 360
     implicitHeight: 680

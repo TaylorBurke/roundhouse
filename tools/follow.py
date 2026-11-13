@@ -1,12 +1,16 @@
 #!/usr/bin/python3 -I
-"""Move a roundhouse window to a workspace, without taking the focus.
+"""Move a session's roundhouse window to a workspace, without taking the focus.
 
-  follow.py TITLE WORKSPACE
+  follow.py SID WORKSPACE
 
-Used when the terminal a session runs in changes workspace: the session's window, found by its
-exact title and the Quickshell app id, goes along. Does nothing if no such window exists or it is
-already there, and never touches a window that is not a roundhouse window. Only a Hyprland window
-address that matched the pattern below, and a whole number, ever reach the command.
+Used when the terminal a session runs in changes workspace: the session's window goes along. The
+window is found by the Quickshell app id and by the session id that ends its title
+(`roundhouse: <folder> · <sid>`), not by the whole title, so a folder name that changes at the same
+moment cannot make it miss. Does nothing if there is no such window or it is already there, and
+never touches a window that is not a roundhouse window. Only a Hyprland window address that
+matched the pattern below, and a whole number, ever reach the command.
+
+Exit status: 0 done (or nothing to do), 1 Hyprland could not be read, 2 bad arguments.
 """
 import json
 import re
@@ -14,14 +18,20 @@ import subprocess
 import sys
 
 APP_CLASS = "org.quickshell"
+TITLE_START = "roundhouse: "
+SEPARATOR = " · "          # between the folder and the session id; ui/RoundhouseWindow.qml builds the title
 ADDRESS = re.compile(r"0x[0-9a-f]{1,16}")
+SID = re.compile(r"[A-Za-z0-9_-]{8}")
 
 
-def pick(clients, title, workspace):
-    """Addresses of the roundhouse windows titled `title` that are not on `workspace` yet."""
+def pick(clients, sid, workspace):
+    """Addresses of the windows of session `sid` that are not on `workspace` yet."""
     out = []
     for c in clients if isinstance(clients, list) else []:
-        if not isinstance(c, dict) or c.get("class") != APP_CLASS or c.get("title") != title or not c.get("mapped", True):
+        if not isinstance(c, dict) or c.get("class") != APP_CLASS or not c.get("mapped", True):
+            continue
+        title = c.get("title")
+        if not isinstance(title, str) or not title.startswith(TITLE_START) or not title.endswith(SEPARATOR + sid):
             continue
         ws = c.get("workspace")
         if isinstance(ws, dict) and ws.get("id") == workspace:
@@ -37,15 +47,15 @@ def dispatch_for(address, workspace):
 
 
 def main(argv):
-    if len(argv) != 2 or not argv[0].startswith("roundhouse") or not re.fullmatch(r"[1-9][0-9]{0,5}", argv[1]):
-        print("usage: follow.py TITLE WORKSPACE   (a roundhouse window title, a workspace id)", file=sys.stderr)
+    if len(argv) != 2 or not SID.fullmatch(argv[0]) or not re.fullmatch(r"[1-9][0-9]{0,5}", argv[1]):
+        print("usage: follow.py SID WORKSPACE   (an 8-character session id, a workspace id)", file=sys.stderr)
         return 2
-    title, workspace = argv[0], int(argv[1])
+    sid, workspace = argv[0], int(argv[1])
     try:
         clients = json.loads(subprocess.check_output(["hyprctl", "clients", "-j"], timeout=3))
     except (OSError, ValueError, subprocess.SubprocessError):
         return 1
-    for address in pick(clients, title, workspace):
+    for address in pick(clients, sid, workspace):
         subprocess.run(["hyprctl", "dispatch", dispatch_for(address, workspace)], check=False, timeout=3,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return 0
