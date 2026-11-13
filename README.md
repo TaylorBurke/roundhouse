@@ -139,13 +139,26 @@ title, then `waiting for you` or the number of tools running, and the context ba
 percentage. So a terminal and its map are easy to pair up. Clicking the header focuses the
 terminal. The window title uses the strip's project name.
 
-It needs claude-strip with its session-strip mod from 0.4, which writes the session id into its
+It needs claude-strip 0.4 or later, whose session-strip mod writes the session id into its
 state file (`tools/strip_state.py` reads those files, read-only, every two seconds while such a
 window is shown). Without it the header just names the folder and the model, and everything
 else works the same.
 
 **One thing to know:** the task title is a summary of your prompts. It is shown in the window
 and nowhere else: roundhouse never writes it to its log, and the hook emitter is unchanged.
+
+### Opening a session's window from its strip
+
+![a claude-strip with its lit map icon, and the window it opened beside it](docs/strip-icon.png)
+
+With [claude-strip](https://github.com/TaylorBurke/claude-strip) 0.4, each strip gets a small
+icon at its far right (shown when the `roundhouse` command is on your PATH). Click it to open or
+close that session's window; it is lit while the window is open. After a `/clear` the strip
+notices the new session id and runs `roundhouse rebind`, so the window carries on in the same
+place. Everything the icon does is the command line above, so it works the same by hand.
+
+The strip's side is a separate change in that repo, in review on a branch: its marketplace
+update is waiting on an open verification request, so it is not released yet.
 
 ### Context ring and the model
 
