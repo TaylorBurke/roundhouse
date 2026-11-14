@@ -73,3 +73,17 @@ function pathRows(paths, kind, home, max) {
     if (paths && paths.length > max) rows.push({ text: "\u2026 and " + (paths.length - max) + " more", sub: "" });
     return { paths: shown, rows: rows };
 }
+
+// A lookup's answer is used only if it is still the current lookup and the list is still waiting
+// for it (the user did not close it, pick something else, or switch session in the meantime).
+function accepts(seq, current, mode) {
+    return seq === current && mode === "note";
+}
+
+// What a click on row `index` means: look the name up (a list of names), open the file (a list of
+// files), or nothing (the "... and N more" row, or a row that is not there).
+function pickAction(mode, index, items, paths) {
+    if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
+    if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
+    return { action: "none" };
+}

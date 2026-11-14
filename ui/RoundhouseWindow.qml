@@ -188,7 +188,7 @@ FloatingWindow {
         finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
     function found(seq, text) {
-        if (seq !== lookupSeq || listMode !== "note") return;        // cancelled, or another lookup took over
+        if (!OpenList.accepts(seq, lookupSeq, listMode)) return;     // cancelled, or another lookup took over
         var paths = [];
         try {
             var parsed = JSON.parse(text);
@@ -206,8 +206,9 @@ FloatingWindow {
         }
     }
     function picked(index) {
-        if (listMode === "items" && listItems[index]) lookup(listItems[index]);
-        else if (listMode === "paths" && listPaths[index]) { openPath(listPaths[index]); closeList(); }
+        var d = OpenList.pickAction(listMode, index, listItems, listPaths);
+        if (d.action === "lookup") lookup(d.item);
+        else if (d.action === "open") { openPath(d.path); closeList(); }
     }
     function openPath(path) {
         Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);

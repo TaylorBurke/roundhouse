@@ -410,7 +410,7 @@ function openables(sess, key, max) {
     if (!sess || (key !== "files" && key !== "memory" && key !== "skills")) return [];
     var by = {}, out = [];
     sess.entries.forEach(function (e) {
-        if (e.station !== key || !e.label || e.label === e.tool) return;
+        if (e.station !== key || !e.label || e.label === e.tool || e.label.charAt(e.label.length - 1) === "\u2026") return;   // a label cut short names nothing
         if (key === "skills" ? e.tool !== "Skill" : FILE_TOOLS.indexOf(e.tool) < 0) return;
         var it = by[e.label];
         if (!it) { it = by[e.label] = { label: e.label, count: 0, ts: 0 }; out.push(it); }

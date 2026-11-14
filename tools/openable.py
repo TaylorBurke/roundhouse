@@ -82,7 +82,7 @@ def parts_of(label):
     return parts
 
 
-def find_files(root, parts, deadline, depth=MAX_DEPTH, skip=frozenset()):
+def find_files(root, parts, deadline, depth=MAX_DEPTH, skip=frozenset(), exempt=frozenset()):
     """Files under root whose path ends with the label's parts; stops at the deadline."""
     out = []
     root = os.path.realpath(root)
@@ -92,7 +92,7 @@ def find_files(root, parts, deadline, depth=MAX_DEPTH, skip=frozenset()):
             break
         if dirpath.count("/") - base >= depth:
             dirnames[:] = []
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and d not in skip]
+        dirnames[:] = [d for d in dirnames if (d not in SKIP_DIRS or d in exempt) and d not in skip]
         if parts[-1] in filenames and (len(parts) == 1 or os.path.basename(dirpath) == parts[0]):
             out.append(os.path.join(dirpath, parts[-1]))
     return out
@@ -100,6 +100,12 @@ def find_files(root, parts, deadline, depth=MAX_DEPTH, skip=frozenset()):
 
 def project_key(cwd):
     return cwd.replace("/", "-").replace(".", "-")
+
+
+def project_keys(cwd):
+    """The names Claude Code may have given a project's folder: every character that is not a letter
+    or digit turned into a dash (a dot, a space, maybe an underscore), or the narrower forms."""
+    return {project_key(cwd), re.sub(r"[^A-Za-z0-9]", "-", cwd), re.sub(r"[^A-Za-z0-9_]", "-", cwd)}
 
 
 def project_roots(cwd, name):
@@ -133,14 +139,15 @@ def resolve_files(kind, label, cwd, name):
     if kind == "memory":
         # this project's own memory folder first, then every project's; the label's folder part is respected
         for root in roots:
-            own.append(os.path.join(claude, "projects", project_key(root), "memory"))
+            for key in sorted(project_keys(root)):
+                own.append(os.path.join(claude, "projects", key, "memory"))
         projects = os.path.join(claude, "projects")
         every = [os.path.join(projects, e, "memory") for e in sorted(os.listdir(projects))] if os.path.isdir(projects) else []
         for folder in own + every:
             if os.path.isdir(folder):
                 found += find_files(folder, parts, deadline, depth=4)
     for root in roots:
-        found += find_files(root, parts, deadline)
+        found += find_files(root, parts, deadline, exempt=frozenset(parts[:-1]))      # `dist/index.js` may live in dist/
     if os.path.isdir(claude):
         found += find_files(claude, parts, deadline, depth=6, skip=CLAUDE_SKIP) if kind != "memory" else []
     ranked = rank(found, roots, own)
@@ -162,9 +169,15 @@ def skill_tier(path):
 
 
 def noisy(path):
-    """Other tools' copies (.kiro, .cursor, .agents ...) and translated docs, tests, examples."""
-    hidden = re.search(r"/(\.[A-Za-z0-9_-]+)/skills/", path)
-    return bool((hidden and hidden.group(1) != ".claude") or re.search(r"/(docs|tests?|examples?|fixtures?)/", path))
+    """Other tools' copies (.kiro, .cursor, .agents ...) and translated docs, tests, examples: judged only
+    inside the plugin folders, and only by the part of the path below them, so where the user's own
+    folders happen to live never counts."""
+    plugins = os.path.join(HOME, ".claude", "plugins") + "/"
+    if not path.startswith(plugins):
+        return False
+    below = "/" + path[len(plugins):]
+    hidden = re.search(r"/(\.[A-Za-z0-9_-]+)/skills/", below)
+    return bool(hidden or re.search(r"/(docs|tests?|examples?|fixtures?)/", below))
 
 
 def resolve_skills(label, cwd, name):
@@ -228,8 +241,11 @@ def open_file(path):
     real = usable(path) if isinstance(path, str) and path.startswith("/") else False
     if not real:
         return False
-    subprocess.Popen(["omarchy", "launch", "editor", real], start_new_session=True,
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        subprocess.Popen(["omarchy", "launch", "editor", real], start_new_session=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:                              # no `omarchy` on PATH, or it cannot start
+        return False
     return True
 
 
@@ -249,7 +265,7 @@ def main(argv):
         if argv[:1] == ["open"] and len(argv) == 2:
             if open_file(argv[1]):
                 return 0
-            print("not an openable file", file=sys.stderr)
+            print("not an openable file, or the editor could not be started", file=sys.stderr)
             return 2
     except ValueError:
         pass

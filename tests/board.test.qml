@@ -295,6 +295,12 @@ QtObject {
         ["shell", "network", "you", "model", "agents", "hooks", "browser", "nope"].forEach(function (k) {
             check("openables: " + k + " has nothing to open", Board.openables(sess(b), k), []);
         });
+        check("openables: a label cut short with an ellipsis names nothing", (function () {
+            var c = Board.newBoard();
+            Board.fold(c, ev({ ts: 1, ev: "tool_end", id: "z1", station: "files", label: "pkg/a-very-long-file-name-that-was-cut\u2026", tool: "Read", status: "ok" }));
+            Board.fold(c, ev({ ts: 2, ev: "tool_end", id: "z2", station: "files", label: "pkg/short.ts", tool: "Read", status: "ok" }));
+            return Board.openables(sess(c), "files").map(function (i) { return i.label; });
+        })(), ["pkg/short.ts"]);
         check("openables: no session", Board.openables(null, "files"), []);
         check("openables: the list is capped", (function () {
             var c = Board.newBoard();

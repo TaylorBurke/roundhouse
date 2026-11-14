@@ -103,6 +103,8 @@ Item {
 
         // ---- the list ----
         function test_a_row_click_says_which_row() {
+            tryVerify(function () { return findChild(list, "row0") !== null && findChild(list, "row1") !== null; }, 3000);
+            wait(60);                                       // the rows were rebuilt by an earlier test: let them lay out
             mouseClick(findChild(list, "row1"));
             compare(picks.count, 1);
             compare(picks.signalArguments[0][0], 1);
@@ -166,6 +168,26 @@ Item {
             compare(rows[1].text, "Work");
             compare(rows[2].text.length > 0, true);            // not a project memory path: shown by its ending
             compare(OpenList.memoryRows([], "/home/ww").length, 0);
+        }
+        function test_a_lookups_answer_is_used_only_while_it_is_current_and_awaited() {
+            verify(OpenList.accepts(3, 3, "note"));
+            verify(!OpenList.accepts(2, 3, "note"));         // another lookup took over
+            verify(!OpenList.accepts(3, 3, ""));              // the list was closed
+            verify(!OpenList.accepts(3, 3, "items"));         // the user went back to a list of names
+            verify(!OpenList.accepts(3, 4, "paths"));
+        }
+        function test_a_row_click_means_lookup_open_or_nothing() {
+            var items = [{ label: "a.ts" }, { label: "b.ts" }];
+            var paths = ["/h/a.ts", "/h/b.ts"];
+            compare(OpenList.pickAction("items", 1, items, paths).action, "lookup");
+            compare(OpenList.pickAction("items", 1, items, paths).item.label, "b.ts");
+            compare(OpenList.pickAction("paths", 0, items, paths).action, "open");
+            compare(OpenList.pickAction("paths", 0, items, paths).path, "/h/a.ts");
+            compare(OpenList.pickAction("paths", 2, items, paths).action, "none");      // the "... and N more" row
+            compare(OpenList.pickAction("items", 5, items, paths).action, "none");
+            compare(OpenList.pickAction("note", 0, items, paths).action, "none");
+            compare(OpenList.pickAction("", 0, items, paths).action, "none");
+            compare(OpenList.pickAction("items", 0, null, null).action, "none");
         }
         function test_the_lookup_command_has_each_part_as_one_argument() {
             var a = OpenList.lookupArgs("/x/openable.py", "files", "src/my file; rm -rf.ts", "/home/ww/proj", "proj");
