@@ -1,6 +1,6 @@
 -- Drop-in window rules for roundhouse (Hyprland, Lua config).
 -- Quickshell windows all share the app id "org.quickshell", so match on the title too.
--- Add to ~/.config/hypr/hyprland.lua:  dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")
+-- Add to ~/.config/hypr/hyprland.lua:  dofile("/path/to/roundhouse/hypr/roundhouse.lua")  (your clone's path; ./install.sh writes it)
 -- Remove the line to undo; nothing else is changed.
 
 -- The all-sessions window: floats on every workspace.
