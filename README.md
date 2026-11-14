@@ -62,8 +62,8 @@ from the strip's own file, shown, and never written to roundhouse's log.
 ## Install
 
 ```bash
-git clone https://github.com/TaylorBurke/roundhouse ~/Work/roundhouse   # or anywhere
-cd ~/Work/roundhouse
+git clone https://github.com/TaylorBurke/roundhouse     # anywhere you like; the commands below run from the clone
+cd roundhouse
 ./install.sh --dry-run     # shows everything it would do, changes nothing
 ./install.sh               # shows each change and asks before making it
 ```
@@ -89,7 +89,7 @@ logout), and the window settings you choose go in `~/.config/roundhouse/config.j
 ## Uninstall
 
 ```bash
-cd ~/Work/roundhouse
+cd roundhouse              # your clone
 ./uninstall.sh --dry-run   # shows what it would do
 ./uninstall.sh             # shows each change and asks first
 ```
@@ -222,11 +222,11 @@ title. To float and size them (and pin the all-sessions one), let `./install.sh`
 `~/.config/hypr/hyprland.lua` when it asks (or add it yourself; remove it to undo):
 
 ```lua
-dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")
+dofile("/path/to/roundhouse/hypr/roundhouse.lua")   -- the absolute path of your clone; the installer writes it for you
 ```
 
 To try the rules for one session without editing anything:
-`hyprctl eval 'dofile(os.getenv("HOME") .. "/Work/roundhouse/hypr/roundhouse.lua")'`.
+`hyprctl eval 'dofile("/path/to/roundhouse/hypr/roundhouse.lua")'` (your clone's path).
 Requires `quickshell`.
 
 The windows tail the log with `tail -F` (one tail, shared) and fold each line into a board per
