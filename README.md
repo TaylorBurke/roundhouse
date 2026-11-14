@@ -169,6 +169,13 @@ What moves and what it means:
 - **Hover a node** (or the hub) for a tooltip: what the station stands for, its counts, and, when it
   wears a red dot, which calls are behind it, marked failed or refused (a refused call counts at its own
   station and at Hooks). Call names show on screen only; nothing is written.
+- **Click Files, Memory or Skills** (the pointer turns into a hand when there is something to open) to
+  open the file behind a name in your editor (`omarchy launch editor`). One name opens at once; several
+  are listed to pick from, and a name that matches several files lists those. The log keeps no full
+  paths, so the name is looked up on disk at the click: under the session's folder (known when
+  claude-strip runs; otherwise a folder with the session's name under your home), then your hooks,
+  skills and memory under `~/.claude`. Only names are read, and only an existing file in your home
+  folder is ever handed to the editor; nothing is executed. Other stations are hover-only.
 - **A thin curve** joining the last seven stations visited (a leg holds 40 s, then fades), and
   **spokes that thicken** with use.
 - **A dot circling Agents** per running subagent. A background task keeps its station lit after its

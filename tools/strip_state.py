@@ -2,13 +2,14 @@
 """What claude-strip knows about each session, keyed by roundhouse's session id.
 
 Prints one JSON object: {"ab12cd34": {"project", "task", "phase", "running", "context",
-"pid", "address", "workspace"}, ...}. Optional and read-only: it reads the strip's own state files
+"pid", "address", "workspace", "cwd"}, ...}. Optional and read-only: it reads the strip's own state files
 ($XDG_RUNTIME_DIR/claude-strip/<pid>.json, or $CLAUDE_STRIP_DIR) and writes nothing.
 
 A file is used when it has a `sessionId` (written by the session-strip mod that ships with claude-strip 0.4), its
 process is alive, and its session has not ended. The key is the first 8 characters of the
 session id, as in roundhouse's log. `address` is the Hyprland window of the terminal the
 session runs in (found by walking up from `pid`), or null; it is for focusing that window.
+`cwd` is the session's folder (an absolute path, or ""): a click on the map looks file names up there.
 `workspace` is the id of the workspace that terminal is on (null if unknown or a special one),
 so the session's window can follow the terminal when it is moved to another workspace.
 
@@ -100,6 +101,7 @@ def read_states(folder):
         out[sid] = (stamp, {
             "project": clean(s.get("project"), 80),
             "task": clean(s.get("task"), 240),
+            "cwd": s["cwd"] if isinstance(s.get("cwd"), str) and s["cwd"].startswith("/") and len(s["cwd"]) <= 400 and not _CONTROL.search(s["cwd"]) else "",
             "phase": s.get("phase") if s.get("phase") in PHASES else "idle",
             "running": running if isinstance(running, int) and running >= 0 else 0,
             "context": context if isinstance(context, int) and 0 <= context <= 100 else -1,

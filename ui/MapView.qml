@@ -488,6 +488,14 @@ Item {
     // ---- tooltips ---------------------------------------------------------------------------
     // Hover a station (or the hub) for what it stands for, its counts, and, when it wears a red
     // badge, which calls are behind it. It shows after a short pause and follows the live data.
+    // A click on a station that has something to open (Files, Memory, Skills: see Board.openables)
+    // says so here; the window decides what to do. The pointer is a pointing hand over those.
+    signal nodeClicked(string key, point anchor)
+    property bool listOpen: false         // the window shows a list beside a station: no tooltip then
+    function canOpen(key) {
+        return revision >= 0 && Board.openables(session, key, 1).length > 0;
+    }
+
     property string hoverKey: ""          // the station under the pointer, "hub" for the hub, else ""
     property bool tipShown: false
     onHoverKeyChanged: { tipShown = false; if (hoverKey !== "") tipDelay.restart(); else tipDelay.stop(); }
@@ -503,7 +511,7 @@ Item {
         }
         return Board.report(session, key, 4);
     }
-    readonly property var tip: tipShown && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
+    readonly property var tip: tipShown && !listOpen && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
     readonly property point tipAnchor: indexOf(hoverKey) >= 0 ? pos(indexOf(hoverKey)) : Qt.point(cx, cy)
 
     Repeater {
@@ -513,9 +521,14 @@ Item {
             required property var modelData
             x: root.pos(index).x - root.discR * 1.5; y: root.pos(index).y - root.discR * 1.2
             width: root.discR * 3; height: root.discR * 3.8
-            hoverEnabled: true; acceptedButtons: Qt.NoButton
+            objectName: "station_" + modelData.key
+            readonly property bool clickable: root.canOpen(modelData.key)
+            hoverEnabled: true
+            acceptedButtons: clickable ? Qt.LeftButton : Qt.NoButton
+            cursorShape: clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
             onEntered: root.hoverKey = modelData.key
             onExited: if (root.hoverKey === modelData.key) root.hoverKey = ""
+            onClicked: root.nodeClicked(modelData.key, root.pos(index))
         }
     }
     MouseArea {

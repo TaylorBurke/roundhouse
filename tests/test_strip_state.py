@@ -28,7 +28,16 @@ class ReadStates(unittest.TestCase):
             got = strip_state.read_states(d)
             self.assertEqual(list(got), ["ab12cd34"])
             self.assertEqual(got["ab12cd34"], {"project": "proj", "task": "doing a thing", "phase": "working",
-                                              "running": 2, "context": 40, "pid": ME})
+                                              "running": 2, "context": 40, "pid": ME, "cwd": ""})
+
+    def test_the_sessions_folder_is_passed_on_only_when_it_is_an_absolute_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            write(d, "a.json", cwd="/home/ww/Work/dev/proj")
+            self.assertEqual(strip_state.read_states(d)["ab12cd34"]["cwd"], "/home/ww/Work/dev/proj")
+        for bad in ("relative/dir", "", "/x\nevil", "/" + "a" * 500, 5, None, ["/x"]):
+            with tempfile.TemporaryDirectory() as d:
+                write(d, "a.json", cwd=bad)
+                self.assertEqual(strip_state.read_states(d)["ab12cd34"]["cwd"], "", bad)
 
     def test_skips_what_cannot_be_used(self):
         with tempfile.TemporaryDirectory() as d:

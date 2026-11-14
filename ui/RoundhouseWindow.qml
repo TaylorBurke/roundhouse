@@ -1,7 +1,9 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "board.js" as Board
 import "follow.js" as Follow
+import "openlist.js" as OpenList
 
 // One roundhouse window. The all-sessions one (sid "*") has the switcher and follows whichever
 // session is active; any other is fixed to its session, so a terminal and its map belong together.
@@ -70,6 +72,7 @@ FloatingWindow {
         anchors.fill: parent
         focus: true
         Keys.onPressed: event => {
+            if (event.key === Qt.Key_Escape && win.listMode !== "") { win.closeList(); event.accepted = true; return; }
             if (!win.all) return;
             var k = event.key, t = event.text;
             if (k === Qt.Key_Left || t === "[") win.cycle(-1);
@@ -118,6 +121,8 @@ FloatingWindow {
         bg: theme.bg; disc: theme.disc; discEdge: theme.discEdge; line: theme.line; ring: theme.ring
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
         accent: theme.accent; alert: theme.alert; memory: theme.memory
+        listOpen: win.listMode !== ""
+        onNodeClicked: (key, anchor) => win.nodeClicked(key, anchor)
     }
 
     Item {
@@ -140,6 +145,98 @@ FloatingWindow {
             onFollow: win.pinned = ""
             onCycle: dir => win.cycle(dir)
         }
+    }
+
+    // ---- clicking a station: open the file behind a name --------------------------------------
+    // Files, Memory and Skills react to a click (the map shows a pointing hand there). One name is
+    // looked up and opened at once; several are listed to pick from; a name that matches several
+    // files lists those. The log keeps no full paths, so the lookup (tools/openable.py) happens now,
+    // under the session's folder; names only are read, and opening only ever hands one existing
+    // file in the home folder to the editor.
+    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message
+    property string listKey: ""
+    property var listItems: []              // the names (mode "items")
+    property var listPaths: []              // the files found (mode "paths")
+    property var listRowsView: []
+    property string listTitle: ""
+    property string listNote: ""
+    property point listAnchor: Qt.point(0, 0)
+    property string lookingFor: ""
+    readonly property string home: Quickshell.env("HOME") || ""
+
+    function closeList() { listMode = ""; noteTimer.stop(); }
+    onShownSidChanged: closeList()
+
+    function nodeClicked(key, anchor) {
+        var d = OpenList.onNode(Board.openables(session, key, 12));
+        if (d.action === "none") return;
+        listKey = key; listAnchor = anchor;
+        listTitle = Board.report(null, key).title;
+        if (d.action === "resolve") lookup(d.item);
+        else { listItems = d.items; listRowsView = d.rows; listMode = "items"; }
+    }
+    function lookup(item) {
+        lookingFor = item.label;
+        listNote = "Looking for " + item.label + "\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
+        var args = ["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "resolve", listKey, item.label];
+        var cwd = strip && strip.cwd ? strip.cwd : "";
+        if (cwd) args = args.concat(["--cwd", cwd]);
+        else if (session && session.dir) args = args.concat(["--dir", session.dir]);
+        finder.command = args;
+        finder.running = true;
+    }
+    function found(text) {
+        var paths = [];
+        try {
+            var parsed = JSON.parse(text);
+            if (parsed && Array.isArray(parsed.paths)) paths = parsed.paths;
+        } catch (e) { paths = []; }
+        var d = OpenList.onResolved(paths);
+        if (d.action === "open") { openPath(d.path); closeList(); }
+        else if (d.action === "choose") {
+            listPaths = d.paths.slice(0, 10);
+            if (listKey === "memory") listRowsView = OpenList.memoryRows(listPaths, home);
+            else listRowsView = OpenList.tails(listPaths, home).map(function (t) { return { text: t, sub: "" }; });
+            listTitle = Board.report(null, listKey).title + " \u00b7 " + lookingFor;
+            if (d.paths.length > 10) listRowsView.push({ text: "\u2026 and " + (d.paths.length - 10) + " more", sub: "" });
+            listMode = "paths";
+        } else {
+            listNote = "Could not find " + lookingFor; listRowsView = []; listMode = "note"; noteTimer.restart();
+        }
+    }
+    function picked(index) {
+        if (listMode === "items" && listItems[index]) lookup(listItems[index]);
+        else if (listMode === "paths" && listPaths[index]) { openPath(listPaths[index]); closeList(); }
+    }
+    function openPath(path) {
+        Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);
+    }
+    Process {
+        id: finder
+        stdout: StdioCollector { onStreamFinished: win.found(text) }
+    }
+    Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }
+    Timer { interval: 8000; running: finder.running; onTriggered: finder.running = false }   // a lookup that hangs is stopped
+
+    MouseArea {                              // a click anywhere else closes the list
+        anchors.fill: parent
+        z: 90
+        visible: win.listMode !== ""
+        onClicked: win.closeList()
+    }
+    OpenList {
+        id: openList
+        z: 100
+        visible: win.listMode !== ""
+        title: win.listTitle
+        rows: win.listRowsView
+        message: win.listMode === "note" ? win.listNote : ""
+        elideMode: win.listMode === "paths" ? Text.ElideLeft : Text.ElideRight
+        bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; edge: theme.discEdge
+        readonly property point at: Qt.point(map.x + win.listAnchor.x, map.y + win.listAnchor.y)
+        x: Math.max(8, Math.min(parent.width - width - 8, at.x - width / 2))
+        y: Math.max(4, Math.min(parent.height - height - 4, win.listAnchor.y < map.height * 0.45 ? at.y + map.discR * 2.7 : at.y - map.discR * 1.7 - height))
+        onPicked: index => win.picked(index)
     }
 
     Feed {
