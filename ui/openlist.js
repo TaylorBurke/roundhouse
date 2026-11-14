@@ -56,11 +56,20 @@ function memoryRows(paths, home) {
 // The command that looks a name up: python3 tools/openable.py resolve KIND LABEL, with the session's
 // folder if known (--cwd), else the session's folder name (--dir). Each is one argument, so a name
 // with spaces or odd characters is never split or interpreted.
-function lookupArgs(script, kind, label, cwd, dir) {
+function lookupArgs(script, kind, label, cwd, dir, sid) {
     var args = ["python3", "-I", script, "resolve", kind, label];
-    if (cwd) return args.concat(["--cwd", cwd]);
-    if (dir) return args.concat(["--dir", dir]);
-    return args;
+    return args.concat(folderArgs(cwd, dir, sid));
+}
+
+// How the lookup learns the session's folder: given outright (--cwd), else by session id (the tool reads
+// it from claude-strip's state, which also serves the all-sessions window) with the folder's name as a
+// last resort.
+function folderArgs(cwd, dir, sid) {
+    if (cwd) return ["--cwd", cwd];
+    var a = [];
+    if (sid) a = a.concat(["--sid", sid]);
+    if (dir) a = a.concat(["--dir", dir]);
+    return a;
 }
 
 // The files found for one name, as list rows: at most `max` of them (what a click can open), and a
@@ -91,11 +100,8 @@ function pickAction(mode, index, items, paths) {
 
 // The command that lists a project's own memory files (a click on Memory): the session's folder if
 // known (--cwd), else its folder name (--dir).
-function memoryListArgs(script, cwd, dir) {
-    var args = ["python3", "-I", script, "list", "memory"];
-    if (cwd) return args.concat(["--cwd", cwd]);
-    if (dir) return args.concat(["--dir", dir]);
-    return args;
+function memoryListArgs(script, cwd, dir, sid) {
+    return ["python3", "-I", script, "list", "memory"].concat(folderArgs(cwd, dir, sid));
 }
 
 // Memory files of one project as list rows: the path below the project's memory folder (MEMORY.md,
@@ -105,4 +111,14 @@ function memoryFileRows(paths) {
         var at = p.lastIndexOf("/memory/");
         return { text: at >= 0 ? p.slice(at + "/memory/".length) : p.slice(p.lastIndexOf("/") + 1), sub: "" };
     });
+}
+
+// The lookup's answer: the list of paths, or an empty list for anything that is not {"paths": [strings]}.
+function parsePaths(text) {
+    try {
+        var parsed = JSON.parse(text);
+        if (parsed && Array.isArray(parsed.paths))
+            return parsed.paths.filter(function (p) { return typeof p === "string" && p.charAt(0) === "/"; });
+    } catch (e) { }
+    return [];
 }

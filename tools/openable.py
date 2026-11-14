@@ -1,8 +1,8 @@
 #!/usr/bin/python3 -I
 """Find the file behind a name on the map, and open it in the editor.
 
-  openable.py resolve KIND LABEL [--cwd DIR] [--dir NAME]    prints {"paths": [...]} (best first)
-  openable.py list memory [--cwd DIR] [--dir NAME]            prints the project's own memory files
+  openable.py resolve KIND LABEL [--cwd DIR] [--sid ID] [--dir NAME]   prints {"paths": [...]} (best first)
+  openable.py list memory [--cwd DIR] [--sid ID] [--dir NAME]           prints the project's own memory files
   openable.py open PATH                                       opens one file in the editor
 
 KIND is files, memory or skills. LABEL is what the map shows: the last two parts of a file's path
@@ -18,17 +18,17 @@ full paths, so a click looks the name up on disk now:
 Only names are read, never file contents. A result is an existing regular file under the home folder
 (or the session's folder), and a symlink that leads out of the home folder is refused, except under
 ~/.claude/skills and the plugin folders, where such links are normal. `open` checks the same again, and
-then only hands the path to `omarchy launch editor` (or `xdg-open` for pictures, video, audio and PDFs):
+then only hands the path to `omarchy launch editor` (or `xdg-open` for pictures, video, audio and PDFs, by extension; never SVG):
 nothing is ever executed. The search stops after a
 couple of seconds.
 
 Exit status: 0 done, 2 bad arguments or a path that is not an openable file.
 """
 import json
-import mimetypes
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -60,6 +60,16 @@ def scratch_root():
     return os.path.join("/tmp", f"claude-{os.getuid()}")
 
 
+def scratch_ok():
+    """The scratch folder only counts if it is a real folder owned by this user that nobody else can write
+    to: /tmp is shared, and someone else could have created the name first."""
+    try:
+        st = os.lstat(scratch_root())
+        return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and not (st.st_mode & 0o022)
+    except OSError:
+        return False
+
+
 def usable(path, extra_root=None):
     """An existing regular file inside the home folder, Claude's scratch folder or the session's folder.
 
@@ -71,7 +81,7 @@ def usable(path, extra_root=None):
         norm = os.path.normpath(path)
         if not os.path.isabs(norm) or not os.path.isfile(norm):
             return False
-        roots = [HOME, scratch_root()] + ([extra_root] if extra_root else [])
+        roots = [HOME] + ([scratch_root()] if scratch_ok() else []) + ([extra_root] if extra_root else [])
         if not any(under(norm, r) for r in roots):
             return False
         real = os.path.realpath(norm)
@@ -116,6 +126,32 @@ def project_keys(cwd):
     """The names Claude Code may have given a project's folder: every character that is not a letter
     or digit turned into a dash (a dot, a space, maybe an underscore), or the narrower forms."""
     return {project_key(cwd), re.sub(r"[^A-Za-z0-9]", "-", cwd), re.sub(r"[^A-Za-z0-9_]", "-", cwd)}
+
+
+def folder_of_session(sid):
+    """The folder a session runs in, from claude-strip's state file for it (it holds the session id and
+    the folder), or None. Lets the all-sessions window, which has no strip of its own, find files too."""
+    if not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8}", sid):
+        return None
+    folder = os.environ.get("CLAUDE_STRIP_DIR") or os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "claude-strip")
+    best = None
+    try:
+        for name in os.listdir(folder):
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                    state = json.load(f)
+            except (OSError, ValueError):
+                continue
+            cwd, session = state.get("cwd"), state.get("sessionId")
+            if isinstance(session, str) and session[:8] == sid and isinstance(cwd, str) and cwd.startswith("/") and len(cwd) <= 400:
+                stamp = state.get("updatedAt") if isinstance(state.get("updatedAt"), (int, float)) else 0
+                if best is None or stamp >= best[0]:
+                    best = (stamp, cwd)
+    except OSError:
+        return None
+    return best[1] if best else None
 
 
 def project_roots(cwd, name):
@@ -181,13 +217,15 @@ def resolve_files(kind, label, cwd, name):
             if os.path.isdir(folder):
                 found += find_files(folder, parts, deadline, depth=4)
     scratch = scratch_root()
-    for root in roots + ([scratch] if kind == "files" and os.path.isdir(scratch) else []):
+    for root in roots + ([scratch] if kind == "files" and scratch_ok() else []):
         found += find_files(root, parts, deadline, exempt=frozenset(parts[:-1]))      # `dist/index.js` may live in dist/
     if os.path.isdir(claude):
         found += find_files(claude, parts, deadline, depth=6, skip=CLAUDE_SKIP) if kind != "memory" else []
     ranked = rank(found, roots, own)
-    if kind == "files" and not ranked:               # nothing under the session's folder: look through the home folder
-        ranked = rank(home_wide(parts, deadline), roots, own)
+    if kind == "files":                              # nothing under the session's folder or the scratch folder: look through home
+        near = roots + ([scratch] if scratch_ok() else [])
+        if not any(under(p, r) for p in ranked for r in near):
+            ranked = rank(ranked + home_wide(parts, deadline), roots, own)
     if kind == "memory":                         # this project's own memory file, if it has one: the others are noise
         mine = [p for p in ranked if any(under(p, o) for o in own)]
         return mine or ranked
@@ -315,14 +353,17 @@ def resolve(kind, label, cwd=None, name=None):
     return []
 
 
-VIEWED = ("image/", "video/", "audio/")        # shown in the default viewer, not as text in an editor
+# Shown in the default viewer rather than as text in an editor: pictures, video, audio and PDFs, by
+# extension (a guessed MIME type varies between systems: .ts can come out as a video). SVG is left to the
+# editor on purpose: opened as a picture it can run script in a browser.
+VIEWED = frozenset(".png .jpg .jpeg .gif .webp .bmp .tif .tiff .ico .avif .heic .mp4 .mkv .webm .mov .avi "
+                   ".mp3 .wav .flac .ogg .oga .opus .m4a .pdf".split())
 
 
 def opener(path):
-    """The command that shows a file: the default viewer for pictures, video, audio and PDFs (a text
-    editor would show noise), the editor for everything else. Neither runs the file."""
-    mime = mimetypes.guess_type(path)[0] or ""
-    if mime.startswith(VIEWED) or mime == "application/pdf":
+    """The command that shows a file: the default viewer for a picture, video, audio or PDF (a text editor
+    would show noise), the editor for everything else. Neither runs the file."""
+    if os.path.splitext(path)[1].lower() in VIEWED:
         return ["xdg-open", path]
     return ["omarchy", "launch", "editor", path]
 
@@ -340,14 +381,16 @@ def open_file(path):
 
 
 def parse_options(rest):
+    """--cwd (the session's folder), --sid (its session id: the folder is looked up from claude-strip's
+    state) and --dir (the folder's name, a last resort). Returns (cwd, dir name)."""
     opts = {}
     while rest:
-        if rest[0] not in ("--cwd", "--dir") or len(rest) < 2:
+        if rest[0] not in ("--cwd", "--dir", "--sid") or len(rest) < 2:
             raise ValueError("usage")
         opts[rest[0][2:]] = rest[1]
         rest = rest[2:]
     cwd = opts.get("cwd") if opts.get("cwd", "").startswith("/") else None
-    return cwd, opts.get("dir")
+    return cwd or folder_of_session(opts.get("sid")), opts.get("dir")
 
 
 def main(argv):

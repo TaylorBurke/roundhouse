@@ -189,7 +189,7 @@ FloatingWindow {
         lookingFor = item.label;
         listNote = "Looking for " + item.label + "\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
         var args = OpenList.lookupArgs(Quickshell.shellPath("../tools/openable.py"), listKey, item.label,
-                                       strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "");
+                                       strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
         finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
     function lookupMemory() {
@@ -197,17 +197,12 @@ FloatingWindow {
         lookingFor = "";
         listNote = "Looking for memory files\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
         var args = OpenList.memoryListArgs(Quickshell.shellPath("../tools/openable.py"),
-                                           strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "");
+                                           strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
         finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
     function found(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;     // cancelled, or another lookup took over
-        var paths = [];
-        try {
-            var parsed = JSON.parse(text);
-            if (parsed && Array.isArray(parsed.paths)) paths = parsed.paths;
-        } catch (e) { paths = []; }
-        var d = OpenList.onResolved(paths);
+        var d = OpenList.onResolved(OpenList.parsePaths(text));
         if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "choose") {
             var r = OpenList.pathRows(d.paths, listKey === "memory" ? "memoryfiles" : listKey, home, 10);

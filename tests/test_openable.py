@@ -4,6 +4,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -132,6 +133,12 @@ class WiderSearch(World):
         want = touch(self.h("Work", "dev", "other", "hooks", "emit.py"))
         self.assertEqual(openable.resolve("files", "hooks/emit.py", None, None), [want])
 
+    def test_a_weaker_match_elsewhere_does_not_hide_the_search_through_home(self):
+        weak = touch(self.h(".claude", "rules", "README.md"))
+        other = touch(self.h("Pictures", "x", "README.md"))
+        got = self.resolve("files", "README.md")
+        self.assertEqual(sorted(got), sorted([weak, other]))
+
     def test_the_session_folder_wins_and_adds_no_noise_from_the_rest_of_home(self):
         mine = touch(os.path.join(self.proj, "hooks", "emit.py"))
         touch(self.h("Work", "dev", "other", "hooks", "emit.py"))
@@ -158,6 +165,162 @@ class WiderSearch(World):
 
     def test_nothing_found_anywhere_is_an_empty_list(self):
         self.assertEqual(self.resolve("files", "no/such-file.xyz"), [])
+
+
+class Scratch(World):
+    """/tmp is shared: Claude's scratch folder only counts if it is the user's own and private."""
+
+    def test_a_scratch_folder_owned_by_the_user_and_private_counts(self):
+        self.assertTrue(openable.scratch_ok())
+        want = touch(os.path.join(self.scratch, "s", "a.md"))
+        self.assertEqual(openable.usable(want), want)
+
+    def test_one_anyone_can_write_to_does_not_count(self):
+        want = touch(os.path.join(self.scratch, "s", "a.md"))
+        os.chmod(self.scratch, 0o777)
+        self.assertFalse(openable.scratch_ok())
+        self.assertFalse(openable.usable(want))
+        self.assertEqual(self.resolve("files", "s/a.md"), [])
+
+    def test_one_group_writable_does_not_count(self):
+        os.chmod(self.scratch, 0o770)
+        self.assertFalse(openable.scratch_ok())
+
+    def test_one_owned_by_someone_else_does_not_count(self):
+        saved = os.getuid
+        os.getuid = lambda: saved() + 1
+        try:
+            self.assertFalse(openable.scratch_ok())
+        finally:
+            os.getuid = saved
+
+    def test_a_symlink_in_its_place_does_not_count(self):
+        real = tempfile.mkdtemp()
+        link = os.path.join(self.tmp.name, "scratch-link")
+        os.symlink(real, link)
+        openable.scratch_root = lambda: link
+        try:
+            self.assertFalse(openable.scratch_ok())
+        finally:
+            os.rmdir(real)
+
+    def test_a_missing_one_does_not_count(self):
+        openable.scratch_root = lambda: os.path.join(self.tmp.name, "nope")
+        self.assertFalse(openable.scratch_ok())
+
+
+class SessionFolder(World):
+    def state(self, name, **fields):
+        folder = os.path.join(self.tmp.name, "strip")
+        os.makedirs(folder, exist_ok=True)
+        touch(os.path.join(folder, name), json.dumps(fields))
+        return folder
+
+    def with_state(self, folder, fn):
+        saved = os.environ.get("CLAUDE_STRIP_DIR")
+        os.environ["CLAUDE_STRIP_DIR"] = folder
+        try:
+            return fn()
+        finally:
+            if saved is None:
+                os.environ.pop("CLAUDE_STRIP_DIR", None)
+            else:
+                os.environ["CLAUDE_STRIP_DIR"] = saved
+
+    def test_the_folder_is_read_from_the_strips_state_by_session_id(self):
+        folder = self.state("1.json", sessionId="abcd1234-0000-1111-2222-333344445555", cwd=self.proj, updatedAt=5)
+        self.assertEqual(self.with_state(folder, lambda: openable.folder_of_session("abcd1234")), self.proj)
+
+    def test_the_newest_state_for_a_session_wins(self):
+        self.state("old.json", sessionId="abcd1234-x", cwd="/old/place", updatedAt=1)
+        folder = self.state("new.json", sessionId="abcd1234-x", cwd=self.proj, updatedAt=9)
+        self.assertEqual(self.with_state(folder, lambda: openable.folder_of_session("abcd1234")), self.proj)
+
+    def test_anything_odd_gives_none(self):
+        folder = self.state("1.json", sessionId="abcd1234-x", cwd="relative/dir", updatedAt=1)
+        self.state("2.json", sessionId="zzzzzzzz-x", cwd=self.proj)
+        touch(os.path.join(folder, "3.json"), "{ not json")
+        for sid in ("abcd1234", "nomatch1", "short", "../../x", None, 5, ""):
+            self.assertIsNone(self.with_state(folder, lambda: openable.folder_of_session(sid)), sid)
+        self.assertIsNone(self.with_state("/nonexistent", lambda: openable.folder_of_session("abcd1234")))
+
+    def test_the_command_finds_files_for_a_session_by_its_id(self):
+        want = touch(os.path.join(self.proj, "pkg", "unique-name.ts"))
+        folder = self.state("1.json", sessionId="abcd1234-x", cwd=self.proj)
+        env = {**os.environ, "HOME": self.home, "CLAUDE_STRIP_DIR": folder}
+        run = subprocess.run([TOOL, "resolve", "files", "pkg/unique-name.ts", "--sid", "abcd1234"], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual((run.returncode, json.loads(run.stdout)), (0, {"paths": [want]}))
+
+    def test_memory_is_listed_for_a_session_by_its_id(self):
+        key = openable.project_key(self.proj)
+        mine = touch(self.h(".claude", "projects", key, "memory", "MEMORY.md"))
+        folder = self.state("1.json", sessionId="abcd1234-x", cwd=self.proj)
+        env = {**os.environ, "HOME": self.home, "CLAUDE_STRIP_DIR": folder}
+        run = subprocess.run([TOOL, "list", "memory", "--sid", "abcd1234"], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual((run.returncode, json.loads(run.stdout)), (0, {"paths": [mine]}))
+
+
+class HomeWideFd(World):
+    """The fd branch: what is asked of fd, and what is done with its answer."""
+
+    def fake_fd(self, answer):
+        bindir = os.path.join(self.tmp.name, "fdbin")
+        os.makedirs(bindir, exist_ok=True)
+        record = os.path.join(self.tmp.name, "fd-args")
+        fake = os.path.join(bindir, "fd")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + record + "'\ncat <<'FD_END'\n" + answer + "\nFD_END\n")
+        os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
+        return bindir, record
+
+    def test_it_asks_fd_for_hidden_and_ignored_files_minus_the_heavy_and_clauds_own_folders(self):
+        want = touch(self.h("Pictures", "shot.png"))
+        bindir, record = self.fake_fd(want)
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = bindir + os.pathsep + saved
+        try:
+            got = openable.home_wide(["shot.png"], time.monotonic() + 5)
+        finally:
+            os.environ["PATH"] = saved
+        self.assertEqual(got, [want])
+        with open(record) as f:
+            args = f.read().splitlines()
+        for flag in ("--type", "f", "--hidden", "--no-ignore", "--absolute-path", "--full-path", "--max-results", str(openable.COLLECT)):
+            self.assertIn(flag, args)
+        excluded = {args[i + 1] for i, a in enumerate(args) if a == "--exclude"}
+        for must in ("node_modules", ".git", ".cache", ".local", ".claude/plugins", ".claude/projects"):
+            self.assertIn(must, excluded)
+        self.assertEqual(args[-2:], ["(^|/)shot\\.png$", self.home])     # the label is escaped and anchored; the search is under home
+
+    def test_what_fd_returns_is_still_checked_before_it_is_offered(self):
+        inside = touch(self.h("Pictures", "shot.png"))
+        bindir, _ = self.fake_fd("\n".join([inside, "/etc/passwd", self.h("missing.png")]))
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = bindir + os.pathsep + saved
+        try:
+            self.assertEqual(self.resolve("files", "shot.png"), [inside])
+        finally:
+            os.environ["PATH"] = saved
+
+    def test_a_failing_fd_gives_nothing_not_a_crash(self):
+        bindir = os.path.join(self.tmp.name, "badfd")
+        os.makedirs(bindir)
+        with open(os.path.join(bindir, "fd"), "w") as f:
+            f.write("#!/bin/sh\nexit 3\n")
+        os.chmod(os.path.join(bindir, "fd"), 0o755)
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = bindir + os.pathsep + saved
+        try:
+            self.assertEqual(openable.home_wide(["x.png"], time.monotonic() + 5), [])
+        finally:
+            os.environ["PATH"] = saved
+
+    @unittest.skipUnless(shutil.which("fd"), "fd is not installed")
+    def test_with_the_real_fd_the_same_answer_comes_back(self):
+        want = touch(self.h("Pictures", "Screenshots", "shot.png"))
+        touch(self.h(".claude", "plugins", "cache", "Screenshots", "shot.png"))
+        touch(self.h("node_modules", "Screenshots", "shot.png"))
+        self.assertEqual(self.resolve("files", "Screenshots/shot.png"), [want])
 
 
 class Memory(World):
@@ -303,16 +466,22 @@ class Opening(World):
                 self.assertEqual((run.returncode, asked), (2, []), bad)
 
     def test_pictures_video_audio_and_pdfs_go_to_the_default_viewer(self):
-        for name in ("shot.png", "a.JPG", "clip.mp4", "song.mp3", "doc.pdf", "fig.svg"):
+        for name in ("shot.png", "a.JPG", "clip.mp4", "song.mp3", "doc.pdf", "photo.heic", "clip.webm"):
             path = touch(self.h("media", name))
             run, asked = self.run_open(path)
             self.assertEqual((run.returncode, asked), (0, [f"xdg-open {path}"]), name)
 
     def test_everything_else_goes_to_the_editor_and_is_never_run(self):
-        for name in ("a.md", "run.sh", "app.desktop", "tool.py", "noext", "data.json", "Makefile"):
+        for name in ("a.md", "run.sh", "app.desktop", "tool.py", "noext", "data.json", "Makefile", "app.ts", "mod.mts", "x.tsx", "clip.m2ts", "logo.svg"):
             path = touch(self.h("things", name))
             run, asked = self.run_open(path)
             self.assertEqual((run.returncode, asked), (0, [f"launch editor {path}"]), name)
+
+    def test_the_viewer_is_chosen_by_extension_never_by_a_guessed_type(self):
+        for name in ("app.ts", "mod.mts", "x.tsx", "logo.svg", "notes.txt", "a.html"):
+            self.assertEqual(openable.opener("/h/" + name)[0], "omarchy", name)      # .ts is a video on some systems; svg can run script
+        for name in ("a.PNG", "b.jpeg", "c.pdf", "d.mp4"):
+            self.assertEqual(openable.opener("/h/" + name)[0], "xdg-open", name)
 
     def test_a_missing_launcher_is_a_refusal_not_a_traceback(self):
         path = touch(self.h("notes", "a.md"))

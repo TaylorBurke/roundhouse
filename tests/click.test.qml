@@ -133,6 +133,8 @@ Item {
 
         // ---- the list ----
         function test_a_row_click_says_which_row() {
+            list.message = "";
+            list.rows = [{ text: "src/app.ts", sub: "\u00d73" }, { text: "README.md", sub: "" }];     // its own rows, whatever ran before
             tryVerify(function () { return findChild(list, "row0") !== null && findChild(list, "row1") !== null; }, 3000);
             wait(60);                                       // the rows were rebuilt by an earlier test: let them lay out
             mouseClick(findChild(list, "row1"));
@@ -207,6 +209,21 @@ Item {
             compare(rows.map(function (r) { return r.text; }), ["MEMORY.md", "topics/x.md", "y.md"]);
             var r = OpenList.pathRows(["/h/.claude/projects/-h-p/memory/MEMORY.md", "/h/.claude/projects/-h-p/memory/a.md"], "memoryfiles", "/h", 10);
             compare(r.rows.map(function (x) { return x.text; }), ["MEMORY.md", "a.md"]);
+        }
+        function test_the_lookups_answer_is_read_defensively() {
+            compare(OpenList.parsePaths('{"paths": ["/h/a.md", "/h/b.md"]}'), ["/h/a.md", "/h/b.md"]);
+            compare(OpenList.parsePaths('{"paths": []}'), []);
+            ["", "not json", "{", "null", "[]", '"x"', '{"paths": "x"}', '{"paths": null}', '{"other": 1}', "42"].forEach(function (t) {
+                compare(OpenList.parsePaths(t), [], t);
+            });
+            compare(OpenList.parsePaths('{"paths": ["/ok", 5, null, "relative", {}]}'), ["/ok"]);        // only absolute path strings
+        }
+        function test_the_session_id_reaches_the_lookup_so_the_all_sessions_window_finds_files_too() {
+            compare(OpenList.lookupArgs("/s", "files", "a/b", "", "proj", "abcd1234"),
+                    ["python3", "-I", "/s", "resolve", "files", "a/b", "--sid", "abcd1234", "--dir", "proj"]);
+            compare(OpenList.lookupArgs("/s", "files", "a/b", "/h/p", "proj", "abcd1234").slice(-2), ["--cwd", "/h/p"]);   // a known folder wins
+            compare(OpenList.memoryListArgs("/s", "", "", "abcd1234"), ["python3", "-I", "/s", "list", "memory", "--sid", "abcd1234"]);
+            compare(OpenList.memoryListArgs("/s", "", "", ""), ["python3", "-I", "/s", "list", "memory"]);
         }
         function test_a_lookups_answer_is_used_only_while_it_is_current_and_awaited() {
             verify(OpenList.accepts(3, 3, "note"));
