@@ -164,7 +164,11 @@ FloatingWindow {
     property string lookingFor: ""
     readonly property string home: Quickshell.env("HOME") || ""
 
-    function closeList() { listMode = ""; noteTimer.stop(); }
+    // Each lookup has a number. Closing the list, a new lookup or another session retires the current
+    // one: its answer, whenever it arrives, is ignored (so a cancelled click never opens a file, and
+    // two clicks in a row never mix their results).
+    property int lookupSeq: 0
+    function closeList() { lookupSeq++; listMode = ""; noteTimer.stop(); }
     onShownSidChanged: closeList()
 
     function nodeClicked(key, anchor) {
@@ -173,19 +177,18 @@ FloatingWindow {
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
         if (d.action === "resolve") lookup(d.item);
-        else { listItems = d.items; listRowsView = d.rows; listMode = "items"; }
+        else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
     }
     function lookup(item) {
+        var seq = ++lookupSeq;
         lookingFor = item.label;
         listNote = "Looking for " + item.label + "\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
-        var args = ["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "resolve", listKey, item.label];
-        var cwd = strip && strip.cwd ? strip.cwd : "";
-        if (cwd) args = args.concat(["--cwd", cwd]);
-        else if (session && session.dir) args = args.concat(["--dir", session.dir]);
-        finder.command = args;
-        finder.running = true;
+        var args = OpenList.lookupArgs(Quickshell.shellPath("../tools/openable.py"), listKey, item.label,
+                                       strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "");
+        finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
-    function found(text) {
+    function found(seq, text) {
+        if (seq !== lookupSeq || listMode !== "note") return;        // cancelled, or another lookup took over
         var paths = [];
         try {
             var parsed = JSON.parse(text);
@@ -194,11 +197,9 @@ FloatingWindow {
         var d = OpenList.onResolved(paths);
         if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "choose") {
-            listPaths = d.paths.slice(0, 10);
-            if (listKey === "memory") listRowsView = OpenList.memoryRows(listPaths, home);
-            else listRowsView = OpenList.tails(listPaths, home).map(function (t) { return { text: t, sub: "" }; });
+            var r = OpenList.pathRows(d.paths, listKey, home, 10);
+            listPaths = r.paths; listRowsView = r.rows;
             listTitle = Board.report(null, listKey).title + " \u00b7 " + lookingFor;
-            if (d.paths.length > 10) listRowsView.push({ text: "\u2026 and " + (d.paths.length - 10) + " more", sub: "" });
             listMode = "paths";
         } else {
             listNote = "Could not find " + lookingFor; listRowsView = []; listMode = "note"; noteTimer.restart();
@@ -211,12 +212,23 @@ FloatingWindow {
     function openPath(path) {
         Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);
     }
-    Process {
-        id: finder
-        stdout: StdioCollector { onStreamFinished: win.found(text) }
+    // one short-lived process per lookup, stopped after 8 s if it hangs, and gone once it has answered
+    Component {
+        id: finderC
+        Item {
+            id: job
+            property int seq: 0
+            property var command: []
+            Process {
+                id: proc
+                command: job.command
+                running: true
+                stdout: StdioCollector { onStreamFinished: { win.found(job.seq, text); job.destroy(); } }
+            }
+            Timer { interval: 8000; running: true; onTriggered: proc.running = false }
+        }
     }
     Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }
-    Timer { interval: 8000; running: finder.running; onTriggered: finder.running = false }   // a lookup that hangs is stopped
 
     MouseArea {                              // a click anywhere else closes the list
         anchors.fill: parent

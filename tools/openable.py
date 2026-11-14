@@ -15,8 +15,10 @@ full paths, so a click looks the name up on disk now:
                  copy first; translated docs and other tools' copies last).
 
 Only names are read, never file contents. A result is an existing regular file under the home folder
-(or the session's folder). `open` checks the same again, and then only hands the path to
-`omarchy launch editor`: nothing is ever executed. The search stops after a couple of seconds.
+(or the session's folder), and a symlink that leads out of the home folder is refused, except under
+~/.claude/skills and the plugin folders, where such links are normal. `open` checks the same again, and
+then only hands the path to `omarchy launch editor`: nothing is ever executed. The search stops after a
+couple of seconds.
 
 Exit status: 0 done, 2 bad arguments or a path that is not an openable file.
 """
@@ -29,7 +31,8 @@ import time
 
 HOME = os.path.realpath(os.path.expanduser("~"))
 BUDGET = 2.5                 # seconds a lookup may take
-MAX_PATHS = 20
+MAX_PATHS = 20                # what a lookup returns
+COLLECT = 400                # what the walk gathers before ranking picks the best MAX_PATHS
 MAX_DEPTH = 9
 CLAUDE_SKIP = frozenset("plugins projects session-data shell-snapshots todos statsig file-history ide backups cache".split())
 SKIP_DIRS = frozenset(
@@ -43,18 +46,28 @@ def under(path, root):
     return path == root or path.startswith(root.rstrip("/") + "/")
 
 
-def usable(path, extra_root=None):
-    """An existing regular file whose own path is inside the home folder (or the session's folder).
+def link_roots():
+    """Folders whose entries may be symlinks to another tool's files (a skill linked from /usr/share ...)."""
+    return [os.path.join(HOME, ".claude", "skills"), os.path.join(HOME, ".claude", "plugins")]
 
-    The path is judged as given, not after following links: a skill that is a symlink into some
-    other tool's folder is still the user's own, and the editor is only shown the file. Returns the
-    normalised path, or False."""
+
+def usable(path, extra_root=None):
+    """An existing regular file inside the home folder (or the session's folder), links included.
+
+    The path as given must be inside. If a symlink on the way leads out of the home folder, the file
+    is only accepted when the path lies in a place meant for such links (~/.claude/skills and the
+    plugin folders); anywhere else, a project folder above all, a link out of home is refused, so a
+    cloned repo cannot point the editor at ~/.ssh or /etc. Returns the normalised path, or False."""
     try:
         norm = os.path.normpath(path)
         if not os.path.isabs(norm) or not os.path.isfile(norm):
             return False
-        inside = under(norm, HOME) or bool(extra_root and under(norm, extra_root))
-        return norm if inside else False
+        if not (under(norm, HOME) or (extra_root and under(norm, extra_root))):
+            return False
+        real = os.path.realpath(norm)
+        if under(real, HOME) or (extra_root and under(real, os.path.realpath(extra_root))):
+            return norm
+        return norm if any(under(norm, r) for r in link_roots()) else False
     except (OSError, ValueError):
         return False
 
@@ -75,7 +88,7 @@ def find_files(root, parts, deadline, depth=MAX_DEPTH, skip=frozenset()):
     root = os.path.realpath(root)
     base = root.count("/")
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        if time.monotonic() > deadline or len(out) >= MAX_PATHS:
+        if time.monotonic() > deadline or len(out) >= COLLECT:
             break
         if dirpath.count("/") - base >= depth:
             dirnames[:] = []
@@ -118,15 +131,14 @@ def resolve_files(kind, label, cwd, name):
     claude = os.path.join(HOME, ".claude")
     own = []
     if kind == "memory":
-        # this project's own memory folder first, then any project's
+        # this project's own memory folder first, then every project's; the label's folder part is respected
         for root in roots:
-            key = project_key(root)
-            own.append(os.path.join(claude, "projects", key, "memory"))
-            found.append(os.path.join(own[-1], parts[-1]))
+            own.append(os.path.join(claude, "projects", project_key(root), "memory"))
         projects = os.path.join(claude, "projects")
-        if os.path.isdir(projects):
-            for entry in sorted(os.listdir(projects)):
-                found.append(os.path.join(projects, entry, "memory", parts[-1]))
+        every = [os.path.join(projects, e, "memory") for e in sorted(os.listdir(projects))] if os.path.isdir(projects) else []
+        for folder in own + every:
+            if os.path.isdir(folder):
+                found += find_files(folder, parts, deadline, depth=4)
     for root in roots:
         found += find_files(root, parts, deadline)
     if os.path.isdir(claude):

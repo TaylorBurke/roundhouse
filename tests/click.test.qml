@@ -94,8 +94,7 @@ Item {
             read("a", "files", "src/app.ts");
             var p = station("files");
             mouseMove(map, p.x, p.y);
-            wait(450);
-            compare(findChild(map, "tooltip").visible, true);
+            tryVerify(function () { return findChild(map, "tooltip").visible; }, 5000);       // it shows after a short pause
             map.listOpen = true;
             compare(findChild(map, "tooltip").visible, false);
             map.listOpen = false;
@@ -167,6 +166,32 @@ Item {
             compare(rows[1].text, "Work");
             compare(rows[2].text.length > 0, true);            // not a project memory path: shown by its ending
             compare(OpenList.memoryRows([], "/home/ww").length, 0);
+        }
+        function test_the_lookup_command_has_each_part_as_one_argument() {
+            var a = OpenList.lookupArgs("/x/openable.py", "files", "src/my file; rm -rf.ts", "/home/ww/proj", "proj");
+            compare(a, ["python3", "-I", "/x/openable.py", "resolve", "files", "src/my file; rm -rf.ts", "--cwd", "/home/ww/proj"]);
+        }
+        function test_the_sessions_folder_wins_over_its_name_and_either_may_be_missing() {
+            compare(OpenList.lookupArgs("/s", "skills", "omarchy", "", "proj"), ["python3", "-I", "/s", "resolve", "skills", "omarchy", "--dir", "proj"]);
+            compare(OpenList.lookupArgs("/s", "memory", "m/x.md", "", ""), ["python3", "-I", "/s", "resolve", "memory", "m/x.md"]);
+            compare(OpenList.lookupArgs("/s", "files", "a/b", "/h/p", "").slice(-2), ["--cwd", "/h/p"]);
+        }
+        function test_more_than_ten_files_show_ten_and_say_how_many_more() {
+            var many = [];
+            for (var i = 0; i < 13; i++) many.push("/home/ww/p" + i + "/f.md");
+            var r = OpenList.pathRows(many, "files", "/home/ww", 10);
+            compare(r.paths.length, 10);
+            compare(r.rows.length, 11);
+            compare(r.rows[10].text, "\u2026 and 3 more");
+            compare(r.paths[10], undefined);                      // the extra row opens nothing
+            var few = OpenList.pathRows(many.slice(0, 3), "files", "/home/ww", 10);
+            compare(few.rows.length, 3);
+        }
+        function test_memory_files_are_listed_by_project_and_others_by_their_endings() {
+            var m = OpenList.pathRows(["/home/ww/.claude/projects/-home-ww-Work-a/memory/MEMORY.md", "/home/ww/.claude/projects/-home-ww-Work-b/memory/MEMORY.md"], "memory", "/home/ww", 10);
+            compare(m.rows.map(function (x) { return x.text; }), ["Work-a", "Work-b"]);
+            var f = OpenList.pathRows(["/home/ww/a/f.md", "/home/ww/b/f.md"], "files", "/home/ww", 10);
+            compare(f.rows.map(function (x) { return x.text; }), ["\u2026/a/f.md", "\u2026/b/f.md"]);
         }
         function test_paths_are_shown_with_the_home_folder_as_a_tilde() {
             compare(OpenList.shorten("/home/ww/Work/a.md", "/home/ww"), "~/Work/a.md");

@@ -52,3 +52,24 @@ function memoryRows(paths, home) {
         return { text: m ? m[1].replace(/^-home-[^-]+-/, "") : fallback[i], sub: "" };
     });
 }
+
+// The command that looks a name up: python3 tools/openable.py resolve KIND LABEL, with the session's
+// folder if known (--cwd), else the session's folder name (--dir). Each is one argument, so a name
+// with spaces or odd characters is never split or interpreted.
+function lookupArgs(script, kind, label, cwd, dir) {
+    var args = ["python3", "-I", script, "resolve", kind, label];
+    if (cwd) return args.concat(["--cwd", cwd]);
+    if (dir) return args.concat(["--dir", dir]);
+    return args;
+}
+
+// The files found for one name, as list rows: at most `max` of them (what a click can open), and a
+// last row saying how many more there are. Memory files are shown by project, the rest by the
+// shortest ending that tells them apart.
+function pathRows(paths, kind, home, max) {
+    var shown = (paths || []).slice(0, max);
+    var rows = kind === "memory" ? memoryRows(shown, home)
+                                 : tails(shown, home).map(function (t) { return { text: t, sub: "" }; });
+    if (paths && paths.length > max) rows.push({ text: "\u2026 and " + (paths.length - max) + " more", sub: "" });
+    return { paths: shown, rows: rows };
+}

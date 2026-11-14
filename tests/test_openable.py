@@ -7,6 +7,7 @@ import os
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -182,14 +183,13 @@ class Opening(World):
         env = {**os.environ, "HOME": self.home, "PATH": bindir + os.pathsep + os.environ["PATH"]}
         run = subprocess.run([TOOL, "open", path], env=env, capture_output=True, text=True, timeout=20)
         asked = []
-        for _ in range(50):                      # the editor is started detached: give it a moment
-            if os.path.exists(record):
-                with open(record) as f:
-                    asked = f.read().splitlines()
-                break
-            if run.returncode != 0:
-                break
-            subprocess.run(["sleep", "0.05"])
+        if run.returncode == 0:                  # the editor is started detached: wait (up to 10 s) for its record
+            deadline = time.monotonic() + 10
+            while not os.path.exists(record) and time.monotonic() < deadline:
+                time.sleep(0.05)
+        if os.path.exists(record):
+            with open(record) as f:
+                asked = f.read().splitlines()
         return run, asked
 
     def test_a_file_in_home_is_handed_to_the_editor_and_nothing_else(self):
@@ -210,6 +210,100 @@ class Opening(World):
         path = touch(self.h("notes", "a.md"))
         run, asked = self.run_open(self.h("notes", "sub", "..", "a.md"))
         self.assertEqual((run.returncode, asked), (0, [f"launch editor {path}"]))
+
+
+class Links(World):
+    """A symlink that leads out of the home folder is refused, except where such links are normal."""
+
+    def setUp(self):
+        super().setUp()
+        self.out = tempfile.TemporaryDirectory()
+        self.secret = touch(os.path.join(os.path.realpath(self.out.name), "secret.txt"))
+
+    def tearDown(self):
+        self.out.cleanup()
+        super().tearDown()
+
+    def test_a_link_in_a_project_to_a_file_outside_home_is_neither_found_nor_opened(self):
+        os.makedirs(os.path.join(self.proj, "docs"))
+        os.symlink(self.secret, os.path.join(self.proj, "docs", "notes.md"))
+        self.assertEqual(self.resolve("files", "docs/notes.md"), [])
+        self.assertFalse(openable.usable(os.path.join(self.proj, "docs", "notes.md")))
+        self.assertFalse(openable.open_file(os.path.join(self.proj, "docs", "notes.md")))
+
+    def test_a_link_to_a_folder_outside_home_does_not_smuggle_its_files_in(self):
+        touch(os.path.join(os.path.realpath(self.out.name), "d", "inner.txt"))
+        os.symlink(os.path.join(os.path.realpath(self.out.name), "d"), os.path.join(self.proj, "linked"))
+        self.assertFalse(openable.usable(os.path.join(self.proj, "linked", "inner.txt")))
+
+    def test_a_link_to_a_file_inside_home_is_fine(self):
+        target = touch(self.h("notes", "real.md"))
+        os.symlink(target, os.path.join(self.proj, "alias.md"))
+        self.assertEqual(openable.usable(os.path.join(self.proj, "alias.md")), os.path.join(self.proj, "alias.md"))
+
+    def test_skills_and_plugin_folders_may_link_to_another_tools_files(self):
+        os.makedirs(self.h(".claude", "skills"))
+        os.makedirs(self.h(".claude", "plugins"))
+        skill = os.path.join(self.h(".claude", "skills", "linked"), "SKILL.md")
+        os.symlink(os.path.dirname(touch(os.path.join(os.path.realpath(self.out.name), "skill", "SKILL.md"))), self.h(".claude", "skills", "linked"))
+        os.symlink(self.secret, self.h(".claude", "plugins", "p.md"))
+        self.assertEqual(openable.usable(skill), skill)
+        self.assertEqual(openable.usable(self.h(".claude", "plugins", "p.md")), self.h(".claude", "plugins", "p.md"))
+
+    def test_elsewhere_under_dot_claude_links_out_of_home_are_refused(self):
+        os.makedirs(self.h(".claude", "hooks"))
+        os.symlink(self.secret, self.h(".claude", "hooks", "h.js"))
+        self.assertFalse(openable.usable(self.h(".claude", "hooks", "h.js")))
+
+    def test_open_refuses_such_a_link_through_the_real_command(self):
+        os.makedirs(os.path.join(self.proj, "docs"))
+        os.symlink(self.secret, os.path.join(self.proj, "docs", "notes.md"))
+        env = {**os.environ, "HOME": self.home}
+        run = subprocess.run([TOOL, "open", os.path.join(self.proj, "docs", "notes.md")], env=env, capture_output=True, text=True, timeout=20)
+        self.assertEqual(run.returncode, 2)
+
+
+class Limits(World):
+    def test_the_best_matches_are_found_even_when_a_common_name_occurs_everywhere(self):
+        paths = []
+        for i in range(45):
+            p = touch(os.path.join(self.proj, f"pkg{i:02d}", "index.ts"))
+            stamp = time.time() - 10000 + (i * 17) % 45 * 10           # scrambled, so no walk order can match it
+            os.utime(p, (stamp, stamp))
+            paths.append((stamp, p))
+        newest20 = [p for _, p in sorted(paths, reverse=True)[:openable.MAX_PATHS]]
+        self.assertEqual(self.resolve("files", "index.ts"), newest20)   # the cap applies after ranking, not during the walk
+
+    def test_the_search_goes_no_deeper_than_the_limit(self):
+        shallow = touch(os.path.join(self.proj, *["d"] * (openable.MAX_DEPTH - 2), "f.txt"))
+        touch(os.path.join(self.proj, *["d"] * (openable.MAX_DEPTH + 3), "g.txt"))
+        self.assertEqual(self.resolve("files", "f.txt"), [shallow])
+        self.assertEqual(self.resolve("files", "g.txt"), [])
+
+    def test_hidden_folders_are_not_searched_for_the_session_folder(self):
+        os.makedirs(self.h(".hidden", "proj"))
+        os.makedirs(self.h("a", "b", "proj"))
+        self.assertEqual(openable.project_roots(None, "proj")[0].count(".hidden"), 0)
+        self.assertEqual(len(openable.project_roots(None, "proj")), 2)       # a/b/proj and Work/dev/proj
+
+    def test_at_most_three_folders_with_the_sessions_name_are_considered(self):
+        for i in range(6):
+            os.makedirs(self.h(f"dir{i}", "proj"))
+        self.assertLessEqual(len(openable.project_roots(None, "proj")), 3)
+
+
+class NestedMemory(World):
+    def test_a_nested_memory_label_respects_its_folder_part(self):
+        key = openable.project_key(self.proj)
+        nested = touch(self.h(".claude", "projects", key, "memory", "notes", "x.md"))
+        touch(self.h(".claude", "projects", "-other", "memory", "x.md"))
+        self.assertEqual(self.resolve("memory", "notes/x.md"), [nested])
+
+    def test_the_memory_folder_itself_matches_the_label_memory_slash_file(self):
+        key = openable.project_key(self.proj)
+        top = touch(self.h(".claude", "projects", key, "memory", "x.md"))
+        touch(self.h(".claude", "projects", key, "memory", "notes", "x.md"))
+        self.assertEqual(self.resolve("memory", "memory/x.md"), [top])
 
 
 class Command(unittest.TestCase):

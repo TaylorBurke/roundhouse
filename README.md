@@ -175,7 +175,8 @@ What moves and what it means:
   paths, so the name is looked up on disk at the click: under the session's folder (known when
   claude-strip runs; otherwise a folder with the session's name under your home), then your hooks,
   skills and memory under `~/.claude`. Only names are read, and only an existing file in your home
-  folder is ever handed to the editor; nothing is executed. Other stations are hover-only.
+  folder is ever handed to the editor (a symlink in a project that points outside your home is refused;
+  skills and plugin folders may link elsewhere, as they usually do); nothing is executed. Other stations are hover-only.
 - **A thin curve** joining the last seven stations visited (a leg holds 40 s, then fades), and
   **spokes that thicken** with use.
 - **A dot circling Agents** per running subagent. A background task keeps its station lit after its
