@@ -1,7 +1,10 @@
 // Station icons, drawn from scratch with a Canvas 2D context. Each one is a handful of
 // strokes in a 24 x 24 box centred on (0, 0); draw() scales it to the size asked for.
 
-var HOOK_TILT = 9 * Math.PI / 180;    // how far the bottom of the hook leans to the right
+var HOOK_TILT = 14 * Math.PI / 180;   // how far the bottom of the hook leans to the right
+// An icon that sits a little off-centre in its disc is nudged by this many screen pixels (not icon
+// units, so the nudge does not grow with the window): the leaning hook, to the right.
+var SHIFT_PX = { hooks: 3 };
 var ICONS = {
     you: function (c) {
         c.arc(0, -4, 3.5, 0, 2 * Math.PI);
@@ -70,7 +73,7 @@ function draw(ctx, name, x, y, size, color, weight) {
     if (!shape) return;
     var k = size / 24;
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(x + (SHIFT_PX[name] || 0), y);
     ctx.scale(k, k);
     ctx.beginPath();
     shape(ctx);
