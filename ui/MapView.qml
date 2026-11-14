@@ -160,6 +160,23 @@ Item {
         }
     }
 
+    // a faint steady backlight and rim behind a station that can be clicked, so it reads as a button
+    // (a running call has the amber pulsing glow; this one is quiet and does not move)
+    Repeater {
+        model: root.stations
+        Rectangle {
+            required property int index
+            required property var modelData
+            objectName: "backlight_" + modelData.key
+            z: -1
+            visible: root.canOpen(modelData.key)
+            width: root.discR * 2.7; height: width; radius: width / 2
+            x: root.pos(index).x - width / 2; y: root.pos(index).y - height / 2
+            color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.09)
+            border.width: 1; border.color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.26)
+        }
+    }
+
     Canvas {
         id: canvas
         anchors.fill: parent
@@ -193,7 +210,7 @@ Item {
                 c.beginPath(); c.arc(p.x, p.y, root.discR, 0, 2 * Math.PI);
                 c.fillStyle = root.disc; c.fill();
                 c.strokeStyle = root.discEdge; c.lineWidth = 1.2; c.stroke();
-                Icons.draw(c, root.stations[i].key, p.x, p.y, root.discR * 1.3, root.stations[i].key === "memory" ? root.memory : root.ink, 1.4);
+                Icons.draw(c, root.stations[i].key, p.x, p.y, root.discR * 1.3, root.ink, 1.4);
             }
             // hub
             c.beginPath(); c.arc(root.cx, root.cy, root.hubR, 0, 2 * Math.PI);
@@ -493,7 +510,9 @@ Item {
     signal nodeClicked(string key, point anchor)
     property bool listOpen: false         // the window shows a list beside a station: no tooltip then
     function canOpen(key) {
-        return revision >= 0 && Board.openables(session, key, 1).length > 0;
+        if (revision < 0 || !session) return false;
+        if (key === "memory") return true;        // the project's memory files are always there to open
+        return Board.openables(session, key, 1).length > 0;
     }
 
     property string hoverKey: ""          // the station under the pointer, "hub" for the hub, else ""

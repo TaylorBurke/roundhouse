@@ -168,7 +168,7 @@ Hyprland on this system is configured in Lua, so the window rules ship as a Lua 
 
 `ui/theme.js` turns an Omarchy `colors.toml` into the palette. Surfaces and text are mixed from
 `background` and `foreground`, so a light theme (dark text on a light background) comes out right
-with the same recipe; `accent`, `red`, `cyan` (Memory), `muted` and `bright_foreground` are used
+with the same recipe; `accent`, `red`, `cyan` (read; the Memory icon was once tinted with it and now matches the others), `muted` and `bright_foreground` are used
 when valid, and a built-in dark palette covers a missing file. A theme switch replaces files,
 symlinks, even the folder, which can leave a file watcher on a deleted file, so the file is watched
 and also re-read every two seconds; while it is briefly missing the current colours stay.

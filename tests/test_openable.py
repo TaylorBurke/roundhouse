@@ -35,9 +35,15 @@ class World(unittest.TestCase):
         openable.HOME = self.home
         self.proj = os.path.join(self.home, "Work", "dev", "proj")
         os.makedirs(self.proj)
+        self.scratch_dir = tempfile.TemporaryDirectory()           # stands in for /tmp/claude-<uid>
+        self.scratch = os.path.realpath(self.scratch_dir.name)
+        self.saved_scratch = openable.scratch_root
+        openable.scratch_root = lambda: self.scratch
 
     def tearDown(self):
         openable.HOME = self.saved
+        openable.scratch_root = self.saved_scratch
+        self.scratch_dir.cleanup()
         self.tmp.cleanup()
 
     def h(self, *p):
@@ -94,13 +100,64 @@ class Files(World):
 
     def test_without_a_session_folder_a_folder_with_the_sessions_name_is_looked_for(self):
         want = touch(os.path.join(self.proj, "docs", "guide.md"))
+        self.assertEqual(openable.project_roots(None, "proj"), [self.proj])
         self.assertEqual(openable.resolve("files", "docs/guide.md", None, "proj"), [want])
-        self.assertEqual(openable.resolve("files", "docs/guide.md", None, "../proj"), [])
-        self.assertEqual(openable.resolve("files", "docs/guide.md", None, None), [])
+        self.assertEqual(openable.project_roots(None, "../proj"), [])            # a name that is not a plain folder name
+        self.assertEqual(openable.project_roots(None, None), [])
 
     def test_a_directory_with_the_name_is_not_a_file(self):
         os.makedirs(os.path.join(self.proj, "a", "b.md"))
         self.assertEqual(self.resolve("files", "a/b.md"), [])
+
+
+class WiderSearch(World):
+    """A file the session's folder does not hold: Claude's scratch folder, or anywhere under home."""
+
+    def test_a_file_in_claudes_scratch_folder_is_found_and_may_be_opened(self):
+        want = touch(os.path.join(self.scratch, "-home-x", "abc", "scratchpad", "notes.md"))
+        self.assertEqual(self.resolve("files", "scratchpad/notes.md"), [want])
+        self.assertEqual(openable.usable(want), want)
+
+    def test_other_places_outside_home_are_still_refused(self):
+        with tempfile.TemporaryDirectory() as other:
+            outside = touch(os.path.join(os.path.realpath(other), "n.md"))
+            self.assertFalse(openable.usable(outside))
+
+    def test_a_name_that_is_not_under_the_session_folder_is_found_elsewhere_in_home(self):
+        want = touch(self.h("Pictures", "Screenshots", "shot.png"))
+        self.assertEqual(self.resolve("files", "Screenshots/shot.png"), [want])
+        self.assertEqual(self.resolve("files", "shot.png"), [want])
+
+    def test_a_session_whose_folder_is_unknown_still_finds_its_files(self):
+        want = touch(self.h("Work", "dev", "other", "hooks", "emit.py"))
+        self.assertEqual(openable.resolve("files", "hooks/emit.py", None, None), [want])
+
+    def test_the_session_folder_wins_and_adds_no_noise_from_the_rest_of_home(self):
+        mine = touch(os.path.join(self.proj, "hooks", "emit.py"))
+        touch(self.h("Work", "dev", "other", "hooks", "emit.py"))
+        self.assertEqual(self.resolve("files", "hooks/emit.py"), [mine])
+
+    def test_the_home_wide_search_stays_out_of_claudes_plugin_and_transcript_folders(self):
+        touch(self.h(".claude", "plugins", "cache", "p", "notes", "a.md"))
+        touch(self.h(".claude", "projects", "-x", "notes", "a.md"))
+        mine = touch(self.h("projects", "notes", "a.md"))                     # a user's own "projects" folder is fine
+        self.assertEqual(self.resolve("files", "notes/a.md"), [mine])
+
+    def test_without_fd_a_bounded_walk_does_the_same(self):
+        want = touch(self.h("Pictures", "Screenshots", "shot.png"))
+        saved = openable.shutil.which
+        openable.shutil.which = lambda name: None
+        try:
+            self.assertEqual(self.resolve("files", "Screenshots/shot.png"), [want])
+        finally:
+            openable.shutil.which = saved
+
+    def test_hidden_places_under_home_are_searched_too(self):
+        want = touch(self.h(".config", "omarchy", "plugins", "x.widget", "Bar.qml"))
+        self.assertEqual(self.resolve("files", "x.widget/Bar.qml"), [want])
+
+    def test_nothing_found_anywhere_is_an_empty_list(self):
+        self.assertEqual(self.resolve("files", "no/such-file.xyz"), [])
 
 
 class Memory(World):
@@ -210,12 +267,15 @@ class Opening(World):
     def run_open(self, path):
         """Run the real tool with HOME pointing at the fake home and `omarchy` recording its arguments."""
         record = os.path.join(self.tmp.name, "asked")
+        if os.path.exists(record):
+            os.remove(record)                    # each call sees only its own line
         bindir = os.path.join(self.tmp.name, "bin")
         os.makedirs(bindir, exist_ok=True)
-        fake = os.path.join(bindir, "omarchy")
-        with open(fake, "w") as f:
-            f.write(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{record}'\n")
-        os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
+        for name, line in (("omarchy", '"$*"'), ("xdg-open", '"xdg-open $*"')):
+            fake = os.path.join(bindir, name)
+            with open(fake, "w") as f:
+                f.write(f"#!/bin/sh\nprintf '%s\\n' {line} >> '{record}'\n")
+            os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
         env = {**os.environ, "HOME": self.home, "PATH": bindir + os.pathsep + os.environ["PATH"]}
         run = subprocess.run([TOOL, "open", path], env=env, capture_output=True, text=True, timeout=20)
         asked = []
@@ -241,6 +301,18 @@ class Opening(World):
             for bad in ("notes/a.md", self.h("missing.txt"), self.h("adir"), outside, "", "-x", self.h("notes", "..", "..", "etc", "passwd")):
                 run, asked = self.run_open(bad)
                 self.assertEqual((run.returncode, asked), (2, []), bad)
+
+    def test_pictures_video_audio_and_pdfs_go_to_the_default_viewer(self):
+        for name in ("shot.png", "a.JPG", "clip.mp4", "song.mp3", "doc.pdf", "fig.svg"):
+            path = touch(self.h("media", name))
+            run, asked = self.run_open(path)
+            self.assertEqual((run.returncode, asked), (0, [f"xdg-open {path}"]), name)
+
+    def test_everything_else_goes_to_the_editor_and_is_never_run(self):
+        for name in ("a.md", "run.sh", "app.desktop", "tool.py", "noext", "data.json", "Makefile"):
+            path = touch(self.h("things", name))
+            run, asked = self.run_open(path)
+            self.assertEqual((run.returncode, asked), (0, [f"launch editor {path}"]), name)
 
     def test_a_missing_launcher_is_a_refusal_not_a_traceback(self):
         path = touch(self.h("notes", "a.md"))
@@ -317,11 +389,12 @@ class Limits(World):
         newest20 = [p for _, p in sorted(paths, reverse=True)[:openable.MAX_PATHS]]
         self.assertEqual(self.resolve("files", "index.ts"), newest20)   # the cap applies after ranking, not during the walk
 
-    def test_the_search_goes_no_deeper_than_the_limit(self):
+    def test_the_walk_goes_no_deeper_than_the_limit(self):
         shallow = touch(os.path.join(self.proj, *["d"] * (openable.MAX_DEPTH - 2), "f.txt"))
         touch(os.path.join(self.proj, *["d"] * (openable.MAX_DEPTH + 3), "g.txt"))
-        self.assertEqual(self.resolve("files", "f.txt"), [shallow])
-        self.assertEqual(self.resolve("files", "g.txt"), [])
+        deadline = time.monotonic() + 5
+        self.assertEqual(openable.find_files(self.proj, ["f.txt"], deadline), [shallow])
+        self.assertEqual(openable.find_files(self.proj, ["g.txt"], deadline), [])
 
     def test_hidden_folders_are_not_searched_for_the_session_folder(self):
         os.makedirs(self.h(".hidden", "proj"))
@@ -333,6 +406,57 @@ class Limits(World):
         for i in range(6):
             os.makedirs(self.h(f"dir{i}", "proj"))
         self.assertLessEqual(len(openable.project_roots(None, "proj")), 3)
+
+
+class ListMemory(World):
+    """Clicking Memory lists the project's own memory files, whatever the session has touched."""
+
+    def folder(self, *p):
+        return self.h(".claude", "projects", openable.project_key(self.proj), "memory", *p)
+
+    def test_the_index_comes_first_then_the_others_newest_first(self):
+        index = touch(self.folder("MEMORY.md"))
+        old = touch(self.folder("old_note.md"))
+        new = touch(self.folder("new_note.md"))
+        os.utime(index, (1000, 1000)); os.utime(old, (2000, 2000)); os.utime(new, (3000, 3000))
+        self.assertEqual(openable.list_memory(self.proj, None), [index, new, old])
+
+    def test_notes_in_a_subfolder_are_listed_and_other_file_types_are_not(self):
+        sub = touch(self.folder("topics", "deep.md"))
+        touch(self.folder("image.png"))
+        touch(self.folder("data.json"))
+        self.assertEqual(openable.list_memory(self.proj, None), [sub])
+
+    def test_only_this_projects_folder_is_listed(self):
+        mine = touch(self.folder("MEMORY.md"))
+        touch(self.h(".claude", "projects", "-someone-else", "memory", "MEMORY.md"))
+        self.assertEqual(openable.list_memory(self.proj, None), [mine])
+
+    def test_no_memory_folder_or_no_session_folder_is_an_empty_list(self):
+        self.assertEqual(openable.list_memory(self.proj, None), [])
+        self.assertEqual(openable.list_memory(None, None), [])
+        self.assertEqual(openable.list_memory(None, "../proj"), [])
+
+    def test_the_session_folder_may_be_found_by_its_name(self):
+        mine = touch(self.folder("MEMORY.md"))
+        self.assertEqual(openable.list_memory(None, "proj"), [mine])
+
+    def test_the_list_is_capped_and_a_link_out_of_home_is_left_out(self):
+        for i in range(30):
+            touch(self.folder(f"note{i:02d}.md"))
+        self.assertEqual(len(openable.list_memory(self.proj, None)), openable.MAX_PATHS)
+        with tempfile.TemporaryDirectory() as other:
+            outside = touch(os.path.join(os.path.realpath(other), "secret.md"))
+            os.symlink(outside, self.folder("linked.md"))
+            self.assertNotIn(self.folder("linked.md"), openable.list_memory(self.proj, None))
+
+    def test_the_command_prints_the_same_list(self):
+        mine = touch(self.folder("MEMORY.md"))
+        env = {**os.environ, "HOME": self.home}
+        run = subprocess.run([TOOL, "list", "memory", "--cwd", self.proj], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual((run.returncode, json.loads(run.stdout)), (0, {"paths": [mine]}))
+        bad = subprocess.run([TOOL, "list", "files"], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(bad.returncode, 2)
 
 
 class NestedMemory(World):

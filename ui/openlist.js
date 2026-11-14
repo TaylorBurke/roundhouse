@@ -68,8 +68,9 @@ function lookupArgs(script, kind, label, cwd, dir) {
 // shortest ending that tells them apart.
 function pathRows(paths, kind, home, max) {
     var shown = (paths || []).slice(0, max);
-    var rows = kind === "memory" ? memoryRows(shown, home)
-                                 : tails(shown, home).map(function (t) { return { text: t, sub: "" }; });
+    var rows = kind === "memoryfiles" ? memoryFileRows(shown)
+             : kind === "memory" ? memoryRows(shown, home)
+             : tails(shown, home).map(function (t) { return { text: t, sub: "" }; });
     if (paths && paths.length > max) rows.push({ text: "\u2026 and " + (paths.length - max) + " more", sub: "" });
     return { paths: shown, rows: rows };
 }
@@ -86,4 +87,22 @@ function pickAction(mode, index, items, paths) {
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
     if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
     return { action: "none" };
+}
+
+// The command that lists a project's own memory files (a click on Memory): the session's folder if
+// known (--cwd), else its folder name (--dir).
+function memoryListArgs(script, cwd, dir) {
+    var args = ["python3", "-I", script, "list", "memory"];
+    if (cwd) return args.concat(["--cwd", cwd]);
+    if (dir) return args.concat(["--dir", dir]);
+    return args;
+}
+
+// Memory files of one project as list rows: the path below the project's memory folder (MEMORY.md,
+// topics/x.md), which is all that tells them apart.
+function memoryFileRows(paths) {
+    return (paths || []).map(function (p) {
+        var at = p.lastIndexOf("/memory/");
+        return { text: at >= 0 ? p.slice(at + "/memory/".length) : p.slice(p.lastIndexOf("/") + 1), sub: "" };
+    });
 }

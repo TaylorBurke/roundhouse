@@ -64,6 +64,36 @@ Item {
             compare(clicks.count, 2);
             compare(clicks.signalArguments[1][0], "skills");
         }
+        function test_memory_is_always_clickable_even_before_any_memory_file_was_touched() {
+            compare(findChild(map, "tooltip").visible, false);
+            compare(area("memory").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("memory").x, station("memory").y);
+            compare(clicks.count, 1);
+            compare(clicks.signalArguments[0][0], "memory");
+        }
+        function test_memory_needs_a_session_to_be_clickable() {
+            parent.board = Board.newBoard();
+            parent.rev++;
+            compare(area("memory").cursorShape, Qt.ArrowCursor);
+        }
+        function test_a_clickable_station_has_a_backlight_and_the_others_do_not() {
+            function lit(k) { return findChild(map, "backlight_" + k).visible; }
+            compare(lit("memory"), true);                    // always
+            compare(lit("files"), false);
+            compare(lit("skills"), false);
+            read("a", "files", "src/app.ts");
+            read("s", "skills", "omarchy", "Skill");
+            compare(lit("files"), true);
+            compare(lit("skills"), true);
+            ["you", "model", "shell", "network", "browser", "agents", "hooks"].forEach(function (k) { compare(lit(k), false, k); });
+        }
+        function test_the_backlight_is_a_quiet_ring_not_the_busy_glow() {
+            read("a", "files", "src/app.ts");
+            var b = findChild(map, "backlight_files");
+            verify(b.border.width === 1);
+            verify(b.color.a < 0.2);                          // faint
+            verify(b.width > map.discR * 2 && b.width < map.discR * 3);   // snug round the disc, smaller than the busy glow (3.0)
+        }
         function test_a_station_with_nothing_to_open_stays_an_arrow_and_does_not_react() {
             compare(area("files").cursorShape, Qt.ArrowCursor);
             mouseClick(map, station("files").x, station("files").y);
@@ -168,6 +198,15 @@ Item {
             compare(rows[1].text, "Work");
             compare(rows[2].text.length > 0, true);            // not a project memory path: shown by its ending
             compare(OpenList.memoryRows([], "/home/ww").length, 0);
+        }
+        function test_the_memory_listing_command_and_its_rows() {
+            compare(OpenList.memoryListArgs("/s", "/h/p", "p"), ["python3", "-I", "/s", "list", "memory", "--cwd", "/h/p"]);
+            compare(OpenList.memoryListArgs("/s", "", "p"), ["python3", "-I", "/s", "list", "memory", "--dir", "p"]);
+            compare(OpenList.memoryListArgs("/s", "", ""), ["python3", "-I", "/s", "list", "memory"]);
+            var rows = OpenList.memoryFileRows(["/h/.claude/projects/-h-p/memory/MEMORY.md", "/h/.claude/projects/-h-p/memory/topics/x.md", "/odd/place/y.md"]);
+            compare(rows.map(function (r) { return r.text; }), ["MEMORY.md", "topics/x.md", "y.md"]);
+            var r = OpenList.pathRows(["/h/.claude/projects/-h-p/memory/MEMORY.md", "/h/.claude/projects/-h-p/memory/a.md"], "memoryfiles", "/h", 10);
+            compare(r.rows.map(function (x) { return x.text; }), ["MEMORY.md", "a.md"]);
         }
         function test_a_lookups_answer_is_used_only_while_it_is_current_and_awaited() {
             verify(OpenList.accepts(3, 3, "note"));

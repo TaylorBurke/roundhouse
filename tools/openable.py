@@ -2,6 +2,7 @@
 """Find the file behind a name on the map, and open it in the editor.
 
   openable.py resolve KIND LABEL [--cwd DIR] [--dir NAME]    prints {"paths": [...]} (best first)
+  openable.py list memory [--cwd DIR] [--dir NAME]            prints the project's own memory files
   openable.py open PATH                                       opens one file in the editor
 
 KIND is files, memory or skills. LABEL is what the map shows: the last two parts of a file's path
@@ -17,20 +18,23 @@ full paths, so a click looks the name up on disk now:
 Only names are read, never file contents. A result is an existing regular file under the home folder
 (or the session's folder), and a symlink that leads out of the home folder is refused, except under
 ~/.claude/skills and the plugin folders, where such links are normal. `open` checks the same again, and
-then only hands the path to `omarchy launch editor`: nothing is ever executed. The search stops after a
+then only hands the path to `omarchy launch editor` (or `xdg-open` for pictures, video, audio and PDFs):
+nothing is ever executed. The search stops after a
 couple of seconds.
 
 Exit status: 0 done, 2 bad arguments or a path that is not an openable file.
 """
 import json
+import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
 
 HOME = os.path.realpath(os.path.expanduser("~"))
-BUDGET = 2.5                 # seconds a lookup may take
+BUDGET = 4.0                 # seconds a lookup may take
 MAX_PATHS = 20                # what a lookup returns
 COLLECT = 400                # what the walk gathers before ranking picks the best MAX_PATHS
 MAX_DEPTH = 9
@@ -51,21 +55,27 @@ def link_roots():
     return [os.path.join(HOME, ".claude", "skills"), os.path.join(HOME, ".claude", "plugins")]
 
 
-def usable(path, extra_root=None):
-    """An existing regular file inside the home folder (or the session's folder), links included.
+def scratch_root():
+    """Claude Code's scratch folder for this user (screenshots, notes and the like are written there)."""
+    return os.path.join("/tmp", f"claude-{os.getuid()}")
 
-    The path as given must be inside. If a symlink on the way leads out of the home folder, the file
-    is only accepted when the path lies in a place meant for such links (~/.claude/skills and the
-    plugin folders); anywhere else, a project folder above all, a link out of home is refused, so a
-    cloned repo cannot point the editor at ~/.ssh or /etc. Returns the normalised path, or False."""
+
+def usable(path, extra_root=None):
+    """An existing regular file inside the home folder, Claude's scratch folder or the session's folder.
+
+    The path as given must be inside one of them. If a symlink on the way leads out, the file is only
+    accepted when the path lies in a place meant for such links (~/.claude/skills and the plugin
+    folders); anywhere else, a project folder above all, a link out is refused, so a cloned repo
+    cannot point the editor at /etc. Returns the normalised path, or False."""
     try:
         norm = os.path.normpath(path)
         if not os.path.isabs(norm) or not os.path.isfile(norm):
             return False
-        if not (under(norm, HOME) or (extra_root and under(norm, extra_root))):
+        roots = [HOME, scratch_root()] + ([extra_root] if extra_root else [])
+        if not any(under(norm, r) for r in roots):
             return False
         real = os.path.realpath(norm)
-        if under(real, HOME) or (extra_root and under(real, os.path.realpath(extra_root))):
+        if any(under(real, os.path.realpath(r)) for r in roots):
             return norm
         return norm if any(under(norm, r) for r in link_roots()) else False
     except (OSError, ValueError):
@@ -127,6 +137,30 @@ def project_roots(cwd, name):
     return found
 
 
+def home_wide(parts, deadline):
+    """Files named like the label anywhere in the home folder, newest first: for a name that is not under
+    the session's folder (or a session whose folder is not known). Uses fd when there is one."""
+    regex = "(^|/)" + "/".join(re.escape(p) for p in parts) + "$"
+    found = []
+    left = max(0.5, deadline - time.monotonic())
+    fd = shutil.which("fd")
+    if fd:
+        cmd = [fd, "--type", "f", "--hidden", "--no-ignore", "--absolute-path", "--full-path", "--max-results", str(COLLECT)]
+        for d in sorted(SKIP_DIRS):
+            cmd += ["--exclude", d]
+        for d in sorted(CLAUDE_SKIP):
+            cmd += ["--exclude", ".claude/" + d]                # only Claude's own folders, not a user's "projects"
+        try:
+            out = subprocess.run(cmd + [regex, HOME], capture_output=True, text=True, timeout=left).stdout
+            found = [line for line in out.splitlines() if line]
+        except (OSError, subprocess.SubprocessError):
+            found = []
+    else:
+        found = find_files(HOME, parts, deadline, depth=7, skip=frozenset())
+        found = [p for p in found if not any(under(p, os.path.join(HOME, ".claude", d)) for d in CLAUDE_SKIP)]
+    return found
+
+
 def resolve_files(kind, label, cwd, name):
     parts = parts_of(label)
     if not parts:
@@ -146,11 +180,14 @@ def resolve_files(kind, label, cwd, name):
         for folder in own + every:
             if os.path.isdir(folder):
                 found += find_files(folder, parts, deadline, depth=4)
-    for root in roots:
+    scratch = scratch_root()
+    for root in roots + ([scratch] if kind == "files" and os.path.isdir(scratch) else []):
         found += find_files(root, parts, deadline, exempt=frozenset(parts[:-1]))      # `dist/index.js` may live in dist/
     if os.path.isdir(claude):
         found += find_files(claude, parts, deadline, depth=6, skip=CLAUDE_SKIP) if kind != "memory" else []
     ranked = rank(found, roots, own)
+    if kind == "files" and not ranked:               # nothing under the session's folder: look through the home folder
+        ranked = rank(home_wide(parts, deadline), roots, own)
     if kind == "memory":                         # this project's own memory file, if it has one: the others are noise
         mine = [p for p in ranked if any(under(p, o) for o in own)]
         return mine or ranked
@@ -229,6 +266,47 @@ def rank(paths, roots, own=()):
     return sorted(out, key=key)[:MAX_PATHS]
 
 
+def list_memory(cwd=None, name=None):
+    """The memory files of the session's project, from its own memory folder: MEMORY.md (the index)
+    first, then the others, newest first. Nothing here depends on what the session has touched:
+    memory is loaded at the start without any tool call, so there may be no event to go by."""
+    claude = os.path.join(HOME, ".claude")
+    roots = project_roots(cwd, name)
+    folders, found = [], []
+    for root in roots:
+        for key in sorted(project_keys(root)):
+            folder = os.path.join(claude, "projects", key, "memory")
+            if folder not in folders and os.path.isdir(folder):
+                folders.append(folder)
+    for folder in folders:
+        base = folder.count("/")
+        for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+            if dirpath.count("/") - base >= 3:
+                dirnames[:] = []
+            for f in filenames:
+                if f.lower().endswith((".md", ".markdown")):
+                    found.append((folder, os.path.join(dirpath, f)))
+    out = []
+    for folder, path in found:
+        real = usable(path)
+        if real:
+            out.append((folder, real))
+
+    def key(item):
+        folder, path = item
+        try:
+            newest = -os.path.getmtime(path)
+        except OSError:
+            newest = 0
+        return (0 if path == os.path.join(folder, "MEMORY.md") else 1, newest, path)
+    seen, paths = set(), []
+    for _, path in sorted(out, key=key):
+        if path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return paths[:MAX_PATHS]
+
+
 def resolve(kind, label, cwd=None, name=None):
     if kind == "skills":
         return resolve_skills(label, cwd, name)
@@ -237,30 +315,50 @@ def resolve(kind, label, cwd=None, name=None):
     return []
 
 
+VIEWED = ("image/", "video/", "audio/")        # shown in the default viewer, not as text in an editor
+
+
+def opener(path):
+    """The command that shows a file: the default viewer for pictures, video, audio and PDFs (a text
+    editor would show noise), the editor for everything else. Neither runs the file."""
+    mime = mimetypes.guess_type(path)[0] or ""
+    if mime.startswith(VIEWED) or mime == "application/pdf":
+        return ["xdg-open", path]
+    return ["omarchy", "launch", "editor", path]
+
+
 def open_file(path):
     real = usable(path) if isinstance(path, str) and path.startswith("/") else False
     if not real:
         return False
     try:
-        subprocess.Popen(["omarchy", "launch", "editor", real], start_new_session=True,
+        subprocess.Popen(opener(real), start_new_session=True,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except OSError:                              # no `omarchy` on PATH, or it cannot start
+    except OSError:                              # the opener is not on PATH, or cannot start
         return False
     return True
+
+
+def parse_options(rest):
+    opts = {}
+    while rest:
+        if rest[0] not in ("--cwd", "--dir") or len(rest) < 2:
+            raise ValueError("usage")
+        opts[rest[0][2:]] = rest[1]
+        rest = rest[2:]
+    cwd = opts.get("cwd") if opts.get("cwd", "").startswith("/") else None
+    return cwd, opts.get("dir")
 
 
 def main(argv):
     try:
         if argv[:1] == ["resolve"] and len(argv) >= 3 and argv[1] in KINDS:
-            kind, label, rest = argv[1], argv[2], argv[3:]
-            opts = {}
-            while rest:
-                if rest[0] not in ("--cwd", "--dir") or len(rest) < 2:
-                    raise ValueError("usage")
-                opts[rest[0][2:]] = rest[1]
-                rest = rest[2:]
-            cwd = opts.get("cwd") if opts.get("cwd", "").startswith("/") else None
-            print(json.dumps({"paths": resolve(kind, label, cwd, opts.get("dir"))}))
+            cwd, name = parse_options(argv[3:])
+            print(json.dumps({"paths": resolve(argv[1], argv[2], cwd, name)}))
+            return 0
+        if argv[:2] == ["list", "memory"]:
+            cwd, name = parse_options(argv[2:])
+            print(json.dumps({"paths": list_memory(cwd, name)}))
             return 0
         if argv[:1] == ["open"] and len(argv) == 2:
             if open_file(argv[1]):
