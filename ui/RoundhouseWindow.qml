@@ -1,7 +1,9 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import "board.js" as Board
 import "follow.js" as Follow
+import "openlist.js" as OpenList
 
 // One roundhouse window. The all-sessions one (sid "*") has the switcher and follows whichever
 // session is active; any other is fixed to its session, so a terminal and its map belong together.
@@ -70,6 +72,7 @@ FloatingWindow {
         anchors.fill: parent
         focus: true
         Keys.onPressed: event => {
+            if (event.key === Qt.Key_Escape && win.listMode !== "") { win.closeList(); event.accepted = true; return; }
             if (!win.all) return;
             var k = event.key, t = event.text;
             if (k === Qt.Key_Left || t === "[") win.cycle(-1);
@@ -118,6 +121,8 @@ FloatingWindow {
         bg: theme.bg; disc: theme.disc; discEdge: theme.discEdge; line: theme.line; ring: theme.ring
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
         accent: theme.accent; alert: theme.alert; memory: theme.memory
+        listOpen: win.listMode !== ""
+        onNodeClicked: (key, anchor) => win.nodeClicked(key, anchor)
     }
 
     Item {
@@ -140,6 +145,120 @@ FloatingWindow {
             onFollow: win.pinned = ""
             onCycle: dir => win.cycle(dir)
         }
+    }
+
+    // ---- clicking a station: open the file behind a name --------------------------------------
+    // Files, Memory and Skills react to a click (the map shows a pointing hand there). One name is
+    // looked up and opened at once; several are listed to pick from; a name that matches several
+    // files lists those. The log keeps no full paths, so the lookup (tools/openable.py) happens now,
+    // under the session's folder; names only are read, and opening only ever hands one existing
+    // file in the home folder to the editor.
+    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message
+    property string listKey: ""
+    property var listItems: []              // the names (mode "items")
+    property var listPaths: []              // the files found (mode "paths")
+    property var listRowsView: []
+    property string listTitle: ""
+    property string listNote: ""
+    property point listAnchor: Qt.point(0, 0)
+    property string lookingFor: ""
+    readonly property string home: Quickshell.env("HOME") || ""
+
+    // Each lookup has a number. Closing the list, a new lookup or another session retires the current
+    // one: its answer, whenever it arrives, is ignored (so a cancelled click never opens a file, and
+    // two clicks in a row never mix their results).
+    property int lookupSeq: 0
+    function closeList() { lookupSeq++; listMode = ""; noteTimer.stop(); }
+    onShownSidChanged: closeList()
+
+    function nodeClicked(key, anchor) {
+        if (key === "memory") {                        // the project's memory files, whether or not any was touched
+            listKey = key; listAnchor = anchor; listTitle = "Memory";
+            lookupMemory();
+            return;
+        }
+        var d = OpenList.onNode(Board.openables(session, key, 12));
+        if (d.action === "none") return;
+        listKey = key; listAnchor = anchor;
+        listTitle = Board.report(null, key).title;
+        if (d.action === "resolve") lookup(d.item);
+        else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
+    }
+    function lookup(item) {
+        var seq = ++lookupSeq;
+        lookingFor = item.label;
+        listNote = "Looking for " + item.label + "\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
+        var args = OpenList.lookupArgs(Quickshell.shellPath("../tools/openable.py"), listKey, item.label,
+                                       strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
+        finderC.createObject(win.contentItem, { seq: seq, command: args });
+    }
+    function lookupMemory() {
+        var seq = ++lookupSeq;
+        lookingFor = "";
+        listNote = "Looking for memory files\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
+        var args = OpenList.memoryListArgs(Quickshell.shellPath("../tools/openable.py"),
+                                           strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
+        finderC.createObject(win.contentItem, { seq: seq, command: args });
+    }
+    function found(seq, text) {
+        if (!OpenList.accepts(seq, lookupSeq, listMode)) return;     // cancelled, or another lookup took over
+        var d = OpenList.onResolved(OpenList.parsePaths(text));
+        if (d.action === "open") { openPath(d.path); closeList(); }
+        else if (d.action === "choose") {
+            var r = OpenList.pathRows(d.paths, listKey === "memory" ? "memoryfiles" : listKey, home, 10);
+            listPaths = r.paths; listRowsView = r.rows;
+            listTitle = listKey === "memory" ? "Memory" : Board.report(null, listKey).title + " \u00b7 " + lookingFor;
+            listMode = "paths";
+        } else {
+            listNote = listKey === "memory" ? "No memory files found for this project" : "Could not find " + lookingFor;
+            listRowsView = []; listMode = "note"; noteTimer.restart();
+        }
+    }
+    function picked(index) {
+        var d = OpenList.pickAction(listMode, index, listItems, listPaths);
+        if (d.action === "lookup") lookup(d.item);
+        else if (d.action === "open") { openPath(d.path); closeList(); }
+    }
+    function openPath(path) {
+        Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);
+    }
+    // one short-lived process per lookup, stopped after 8 s if it hangs, and gone once it has answered
+    Component {
+        id: finderC
+        Item {
+            id: job
+            property int seq: 0
+            property var command: []
+            Process {
+                id: proc
+                command: job.command
+                running: true
+                stdout: StdioCollector { onStreamFinished: { win.found(job.seq, text); job.destroy(); } }
+            }
+            Timer { interval: 8000; running: true; onTriggered: proc.running = false }
+        }
+    }
+    Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }
+
+    MouseArea {                              // a click anywhere else closes the list
+        anchors.fill: parent
+        z: 90
+        visible: win.listMode !== ""
+        onClicked: win.closeList()
+    }
+    OpenList {
+        id: openList
+        z: 100
+        visible: win.listMode !== ""
+        title: win.listTitle
+        rows: win.listRowsView
+        message: win.listMode === "note" ? win.listNote : ""
+        elideMode: win.listMode === "paths" ? Text.ElideLeft : Text.ElideRight
+        bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; edge: theme.discEdge
+        readonly property point at: Qt.point(map.x + win.listAnchor.x, map.y + win.listAnchor.y)
+        x: Math.max(8, Math.min(parent.width - width - 8, at.x - width / 2))
+        y: Math.max(4, Math.min(parent.height - height - 4, win.listAnchor.y < map.height * 0.45 ? at.y + map.discR * 2.7 : at.y - map.discR * 1.7 - height))
+        onPicked: index => win.picked(index)
     }
 
     Feed {

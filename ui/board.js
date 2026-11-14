@@ -401,6 +401,26 @@ function report(sess, key, max) {
     return r;
 }
 
+// What a click on a station can open: the distinct names behind it, newest first. Files and Memory:
+// the files the Read/Write/Edit tools touched (their label is the path's last two parts); Skills:
+// the skills invoked. Other tools' labels at those stations are descriptions, not names, so they
+// are left out. Names only; a click looks the name up on disk (tools/openable.py).
+var FILE_TOOLS = ["Read", "Write", "Edit", "MultiEdit", "NotebookEdit"];
+function openables(sess, key, max) {
+    if (!sess || (key !== "files" && key !== "memory" && key !== "skills")) return [];
+    var by = {}, out = [];
+    sess.entries.forEach(function (e) {
+        if (e.station !== key || !e.label || e.label === e.tool || e.label.charAt(e.label.length - 1) === "\u2026") return;   // a label cut short names nothing
+        if (key === "skills" ? e.tool !== "Skill" : FILE_TOOLS.indexOf(e.tool) < 0) return;
+        var it = by[e.label];
+        if (!it) { it = by[e.label] = { label: e.label, count: 0, ts: 0 }; out.push(it); }
+        it.count++;
+        if (e.ts >= it.ts) it.ts = e.ts;
+    });
+    out.sort(function (a, b) { return b.ts - a.ts; });
+    return out.slice(0, max || 12);
+}
+
 // How many subagents are running, for the dots that orbit the Agents station.
 function runningAgents(sess) {
     if (!sess) return 0;
@@ -443,4 +463,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, report: report, problems: problems, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, report: report, problems: problems, openables: openables, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

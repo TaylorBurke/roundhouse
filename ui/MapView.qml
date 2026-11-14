@@ -160,6 +160,23 @@ Item {
         }
     }
 
+    // a faint steady backlight and rim behind a station that can be clicked, so it reads as a button
+    // (a running call has the amber pulsing glow; this one is quiet and does not move)
+    Repeater {
+        model: root.stations
+        Rectangle {
+            required property int index
+            required property var modelData
+            objectName: "backlight_" + modelData.key
+            z: -1
+            visible: root.canOpen(modelData.key)
+            width: root.discR * 2.7; height: width; radius: width / 2
+            x: root.pos(index).x - width / 2; y: root.pos(index).y - height / 2
+            color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.09)
+            border.width: 1; border.color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.26)
+        }
+    }
+
     Canvas {
         id: canvas
         anchors.fill: parent
@@ -193,7 +210,7 @@ Item {
                 c.beginPath(); c.arc(p.x, p.y, root.discR, 0, 2 * Math.PI);
                 c.fillStyle = root.disc; c.fill();
                 c.strokeStyle = root.discEdge; c.lineWidth = 1.2; c.stroke();
-                Icons.draw(c, root.stations[i].key, p.x, p.y, root.discR * 1.3, root.stations[i].key === "memory" ? root.memory : root.ink, 1.4);
+                Icons.draw(c, root.stations[i].key, p.x, p.y, root.discR * 1.3, root.ink, 1.4);
             }
             // hub
             c.beginPath(); c.arc(root.cx, root.cy, root.hubR, 0, 2 * Math.PI);
@@ -488,6 +505,16 @@ Item {
     // ---- tooltips ---------------------------------------------------------------------------
     // Hover a station (or the hub) for what it stands for, its counts, and, when it wears a red
     // badge, which calls are behind it. It shows after a short pause and follows the live data.
+    // A click on a station that has something to open (Files, Memory, Skills: see Board.openables)
+    // says so here; the window decides what to do. The pointer is a pointing hand over those.
+    signal nodeClicked(string key, point anchor)
+    property bool listOpen: false         // the window shows a list beside a station: no tooltip then
+    function canOpen(key) {
+        if (revision < 0 || !session) return false;
+        if (key === "memory") return true;        // the project's memory files are always there to open
+        return Board.openables(session, key, 1).length > 0;
+    }
+
     property string hoverKey: ""          // the station under the pointer, "hub" for the hub, else ""
     property bool tipShown: false
     onHoverKeyChanged: { tipShown = false; if (hoverKey !== "") tipDelay.restart(); else tipDelay.stop(); }
@@ -503,7 +530,7 @@ Item {
         }
         return Board.report(session, key, 4);
     }
-    readonly property var tip: tipShown && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
+    readonly property var tip: tipShown && !listOpen && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
     readonly property point tipAnchor: indexOf(hoverKey) >= 0 ? pos(indexOf(hoverKey)) : Qt.point(cx, cy)
 
     Repeater {
@@ -513,9 +540,14 @@ Item {
             required property var modelData
             x: root.pos(index).x - root.discR * 1.5; y: root.pos(index).y - root.discR * 1.2
             width: root.discR * 3; height: root.discR * 3.8
-            hoverEnabled: true; acceptedButtons: Qt.NoButton
+            objectName: "station_" + modelData.key
+            readonly property bool clickable: root.canOpen(modelData.key)
+            hoverEnabled: true
+            acceptedButtons: clickable ? Qt.LeftButton : Qt.NoButton
+            cursorShape: clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
             onEntered: root.hoverKey = modelData.key
             onExited: if (root.hoverKey === modelData.key) root.hoverKey = ""
+            onClicked: root.nodeClicked(modelData.key, root.pos(index))
         }
     }
     MouseArea {

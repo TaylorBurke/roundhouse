@@ -275,6 +275,39 @@ QtObject {
             return sess(c).errDots.files;
         })(), 1);
 
+        // what a click on a station can open: distinct names, newest first, from the file and skill tools only
+        b = Board.newBoard();
+        function put(id, ts, station, label, tool) { Board.fold(b, ev({ ts: ts, ev: "tool_end", id: id, station: station, label: label, tool: tool, status: "ok" })); }
+        put("o1", 1, "files", "src/a.ts", "Read");
+        put("o2", 2, "files", "src/b.ts", "Edit");
+        put("o3", 3, "files", "src/a.ts", "Edit");
+        put("o4", 4, "files", "List the manifests", "Bash");        // a shell line of file commands: a description
+        put("o5", 5, "files", "Grep", "Grep");                         // a search: the label is the tool name
+        put("o6", 6, "files", "Read", "Read");                         // no path: the label fell back to the tool name
+        put("o7", 7, "memory", "memory/note.md", "Write");
+        put("o8", 8, "skills", "tdd-workflow", "Skill");
+        put("o9", 9, "skills", "loading tools", "ToolSearch");         // not a skill
+        put("oa", 10, "shell", "build it", "Bash");
+        check("openables: files, newest first, deduped with counts",
+              Board.openables(sess(b), "files").map(function (i) { return [i.label, i.count]; }), [["src/a.ts", 2], ["src/b.ts", 1]]);
+        check("openables: memory", Board.openables(sess(b), "memory").map(function (i) { return i.label; }), ["memory/note.md"]);
+        check("openables: skills only from the Skill tool", Board.openables(sess(b), "skills").map(function (i) { return i.label; }), ["tdd-workflow"]);
+        ["shell", "network", "you", "model", "agents", "hooks", "browser", "nope"].forEach(function (k) {
+            check("openables: " + k + " has nothing to open", Board.openables(sess(b), k), []);
+        });
+        check("openables: a label cut short with an ellipsis names nothing", (function () {
+            var c = Board.newBoard();
+            Board.fold(c, ev({ ts: 1, ev: "tool_end", id: "z1", station: "files", label: "pkg/a-very-long-file-name-that-was-cut\u2026", tool: "Read", status: "ok" }));
+            Board.fold(c, ev({ ts: 2, ev: "tool_end", id: "z2", station: "files", label: "pkg/short.ts", tool: "Read", status: "ok" }));
+            return Board.openables(sess(c), "files").map(function (i) { return i.label; });
+        })(), ["pkg/short.ts"]);
+        check("openables: no session", Board.openables(null, "files"), []);
+        check("openables: the list is capped", (function () {
+            var c = Board.newBoard();
+            for (var i = 0; i < 30; i++) Board.fold(c, ev({ ts: 1 + i, ev: "tool_end", id: "c" + i, station: "files", label: "d/f" + i + ".ts", tool: "Read", status: "ok" }));
+            return [Board.openables(sess(c), "files").length, Board.openables(sess(c), "files", 5).length, Board.openables(sess(c), "files")[0].label];
+        })(), [12, 5, "d/f29.ts"]);
+
         // clock hands need the oldest running start per station
         b = Board.newBoard();
         Board.fold(b, ev({ ts: 10, ev: "tool_start", id: "a", station: "files", label: "x", tool: "Read" }));
