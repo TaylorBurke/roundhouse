@@ -1,6 +1,7 @@
 // Station icons, drawn from scratch with a Canvas 2D context. Each one is a handful of
 // strokes in a 24 x 24 box centred on (0, 0); draw() scales it to the size asked for.
 
+var HOOK_TILT = 9 * Math.PI / 180;    // how far the bottom of the hook leans to the right
 var ICONS = {
     you: function (c) {
         c.arc(0, -4, 3.5, 0, 2 * Math.PI);
@@ -50,11 +51,17 @@ var ICONS = {
         c.moveTo(2, -9); c.lineTo(-5, 1); c.lineTo(-0.5, 1); c.lineTo(-2, 9);
         c.lineTo(5, -2); c.lineTo(0.5, -2); c.closePath();
     },
+    // The eyelet stays put; the shaft and the curve under it swing about the eyelet's foot, so the
+    // bottom of the hook leans to the right.
     hooks: function (c) {
+        var a = -HOOK_TILT, cos = Math.cos(a), sin = Math.sin(a), px = 0, py = -5;
+        function turn(x, y) { return [px + (x - px) * cos - (y - py) * sin, py + (x - px) * sin + (y - py) * cos]; }
         c.moveTo(1.5, -6.5); c.arc(0, -6.5, 1.5, 0, 2 * Math.PI);
-        c.moveTo(0, -5); c.lineTo(0, 3);
-        c.arc(-4, 3, 4, 0, Math.PI);
-        c.lineTo(-8, 1);
+        c.moveTo(px, py);
+        var foot = turn(0, 3), centre = turn(-4, 3), tip = turn(-8, 1);
+        c.lineTo(foot[0], foot[1]);
+        c.arc(centre[0], centre[1], 4, a, Math.PI + a);
+        c.lineTo(tip[0], tip[1]);
     }
 };
 
