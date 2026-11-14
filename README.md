@@ -284,8 +284,8 @@ close that session's window; it is lit while the window is open. After a `/clear
 notices the new session id and runs `roundhouse rebind`, so the window carries on in the same
 place. Everything the icon does is the command line above, so it works the same by hand.
 
-The strip's side is a separate change in that repo, in review on a branch: its marketplace
-update is waiting on an open verification request, so it is not released yet.
+The strip's side is merged on claude-strip's `main` branch (v0.4.0). Its Omarchy marketplace
+update is still to come, so until then use a clone of that repository for the strip.
 
 ### Context ring and the model
 
