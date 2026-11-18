@@ -175,6 +175,7 @@ What moves and what it means:
   (name, steps this turn, compactions), Network (top hosts), Agents (running types), You ("waiting on you
   since 12:03"). The hub shows the raw token count, the window size and whether it comes from your
   setting or is a guess, and how old the reading is. Call names show on screen only; nothing is written.
+  ![Shell tooltip](docs/tooltip-shell.png) ![Hub tooltip](docs/tooltip-hub.png)
 - **Click Files, Memory or Skills** (the station has a faint backlight, and the pointer turns into a hand,
   when there is something to open). **Files** and **Skills** open the file behind a name in your editor
   (`omarchy launch editor`; pictures, video, audio and PDFs go to your default viewer): one name opens

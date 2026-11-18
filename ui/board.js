@@ -397,7 +397,8 @@ function fmtElapsed(sec) {            // "45s", "1m12s", "2h03m"
     if (sec < 3600) return Math.floor(sec / 60) + "m" + (sec % 60 < 10 ? "0" : "") + (sec % 60) + "s";
     return Math.floor(sec / 3600) + "h" + (Math.floor(sec % 3600 / 60) < 10 ? "0" : "") + Math.floor(sec % 3600 / 60) + "m";
 }
-function fmtMs(ms) { return ms < 1000 ? Math.round(ms) + "ms" : ms < 10000 ? (ms / 1000).toFixed(1) + "s" : fmtElapsed(ms / 1000); }
+function isNum(n) { return typeof n === "number" && isFinite(n); }
+function fmtMs(ms) { if (!isNum(ms)) return ""; return ms < 1000 ? Math.round(ms) + "ms" : ms < 10000 ? (ms / 1000).toFixed(1) + "s" : fmtElapsed(ms / 1000); }
 function trim(text, n) { return text.length > n ? text.slice(0, n - 1) + "\u2026" : text; }
 function groups(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+$)/g, ","); }
 
@@ -408,7 +409,7 @@ function factLines(sess, key, now) {
     sess.entries.forEach(function (e) {
         if (e.station !== key) return;
         if (e.status === "running" && e.id) running.push(e);
-        else if (e.ms !== undefined && e.ms !== null && e.status !== "running") done.push(e);
+        else if (isNum(e.ms) && e.status !== "running") done.push(e);
     });
     running.sort(function (a, b) { return a.ts - b.ts; });
     running.slice(0, 3).forEach(function (e) { lines.push(trim(e.label || e.tool || "call", 28) + " \u00b7 " + fmtElapsed(now - e.ts)); });
@@ -433,7 +434,7 @@ function factLines(sess, key, now) {
     } else if (key === "network") {
         var hosts = {}, order = [];
         sess.entries.forEach(function (e) {
-            if (e.station !== "network" || !/^[\w-]+(\.[\w-]+)+$/.test(e.label || "")) return;
+            if (e.station !== "network" || !/^(localhost|[\w-]+(\.[\w-]+)+)$/.test(e.label || "")) return;
             if (!hosts[e.label]) { hosts[e.label] = 0; order.push(e.label); }
             hosts[e.label]++;
         });
@@ -451,7 +452,7 @@ function factLines(sess, key, now) {
         sess.entries.forEach(function (e) {
             if (e.station !== "you") return;
             if (e.label === "new message") wait = 0;
-            else if (!wait && (e.label === "answer ready" || e.label.indexOf("notification") === 0)) wait = e.ts;
+            else if (!wait && (e.label === "answer ready" || (e.label || "").indexOf("notification") === 0)) wait = e.ts;
         });
         if (wait && !sess.ended) lines.push("waiting on you since " + clock(wait));
     }

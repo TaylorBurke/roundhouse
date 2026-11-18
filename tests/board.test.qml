@@ -436,6 +436,25 @@ QtObject {
         check("hub: guessed window", Board.hubLines(sess(b), 0, 216), ["48,213 tokens of 200,000", "window from a guess (set it in settings)", "reading 1m00s old"]);
         check("hub: configured window", Board.hubLines(sess(b), 1000000, 158).slice(0, 2), ["48,213 tokens of 1,000,000", "window from your setting"]);
 
+        // review fixes: a label-less entry, a non-numeric ms, steps only since the last prompt, local hosts
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 2, ev: "batch" }));
+        Board.fold(b, ev({ ts: 3, ev: "batch" }));
+        check("steps: counted since the last prompt", Board.report(sess(b), "model", 4, 10).lines[0].indexOf("2 steps this turn") >= 0, true);
+        Board.fold(b, ev({ ts: 5, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 6, ev: "batch" }));
+        check("steps: an older turn does not count", [sess(b).promptTs, Board.report(sess(b), "model", 4, 10).lines[0].indexOf("1 step this turn") >= 0], [5, true]);
+        sess(b).entries.push({ ts: 7, station: "you", status: "ok", id: null });
+        check("facts: a label-less you entry does not throw", Board.report(sess(b), "you", 4, 10).lines, []);
+        Board.fold(b, ev({ ts: 8, ev: "tool_end", id: "bad", station: "shell", label: "x", tool: "Bash", status: "ok", ms: "12" }));
+        Board.fold(b, ev({ ts: 9, ev: "tool_end", id: "ok", station: "shell", label: "y", tool: "Bash", status: "ok", ms: 100 }));
+        check("facts: a string ms is left out of the average", Board.report(sess(b), "shell", 4, 10).lines, ["last: y \u00b7 100ms", "average 100ms over 1 call"]);
+        check("facts: fmtMs of a non-number", [Board.fmtMs("12"), Board.fmtMs(NaN), Board.fmtMs(undefined)], ["", "", ""]);
+        Board.fold(b, ev({ ts: 10, ev: "tool_end", id: "h1", station: "network", label: "localhost", tool: "WebFetch", status: "ok", ms: 1 }));
+        Board.fold(b, ev({ ts: 11, ev: "tool_end", id: "h2", station: "network", label: "127.0.0.1", tool: "WebFetch", status: "ok", ms: 1 }));
+        check("facts: localhost and IPv4 count as hosts", Board.report(sess(b), "network", 4, 20).lines.slice(-1), ["hosts: localhost \u00d71, 127.0.0.1 \u00d71"]);
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }
