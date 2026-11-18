@@ -152,7 +152,7 @@ Item {
         function test_other_stations_never_react_even_with_calls_behind_them() {
             read("sh", "shell", "build it", "Bash");
             read("n", "network", "web search", "WebSearch");               // Network reacts only to hosts and MCP servers
-            ["shell", "network", "you", "model", "agents", "hooks", "browser"].forEach(function (k) {
+            ["shell", "network", "you", "model", "agents", "hooks"].forEach(function (k) {
                 compare(area(k).cursorShape, Qt.ArrowCursor, k);
                 mouseClick(map, station(k).x, station(k).y);
             });
@@ -187,7 +187,7 @@ Item {
             var spy = { calls: 0, openables: function () { this.calls++; return [{ label: "x", count: 1 }]; } };
             verify(OpenList.canOpen("memory", sess, spy));                    // always
             compare(spy.calls, 0);                                           // and no names were computed for it
-            ["you", "model", "shell", "network", "browser", "agents", "hooks", "hub", "nope"].forEach(function (k) {
+            ["you", "model", "shell", "network", "agents", "hooks", "hub", "nope"].forEach(function (k) {
                 verify(!OpenList.canOpen(k, sess, spy), k);                  // no entry: nothing to open, even with names
             });
             compare(spy.calls, 0);                                           // no names computed for a key with no entry
@@ -551,6 +551,88 @@ Item {
         }
         function test_the_open_command_is_one_list_with_the_host_as_one_argument() {
             compare(OpenList.openHostArgs("/s/openhost.py", "example.com"), ["python3", "-I", "/s/openhost.py", "open", "example.com"]);
+        }
+        // ---- Browser: focus a window ----
+        function test_browser_is_clickable_once_the_session_used_it() {
+            compare(area("browser").cursorShape, Qt.ArrowCursor);
+            read("b", "browser", "example.com", "mcp__claude-in-chrome__navigate");
+            compare(area("browser").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("browser").x, station("browser").y);
+            compare(clicks.count, 1);
+            compare(clicks.signalArguments[0][0], "browser");
+        }
+        function test_browser_can_is_cheap_and_in_memory() {
+            var sess = { stations: { browser: { count: 0 } }, entries: { some: function () { throw "scanned"; } } };
+            verify(!OpenList.canOpen("browser", sess, {}));
+            sess.stations.browser.count = 2;
+            verify(OpenList.canOpen("browser", sess, {}));
+            verify(!OpenList.canOpen("browser", null, {}));
+            verify(!OpenList.canOpen("browser", {}, {}));
+            compare(OpenList.onClick("browser", sess, {}).action, "browser");
+        }
+        function sessionWith(tools) {
+            parent.board = Board.newBoard();
+            parent.fold({ ts: 1, ev: "session", dir: "proj", model: "claude-sonnet-5-5" });
+            tools.forEach(function (t, n) { read("t" + n, "browser", "example.com", t); });
+            return parent.board.sessions["aaaaaaaa"];
+        }
+        function test_a_click_says_where_the_browser_is_by_what_the_session_drove() {
+            var dev = "mcp__chrome-devtools__navigate_page", ext = "mcp__claude-in-chrome__navigate", pw = "mcp__playwright__browser_navigate";
+            compare(OpenList.onClick("browser", sessionWith([dev]), Board).action, "backstage");        // only devtools: Backstage
+            compare(OpenList.onClick("browser", sessionWith([ext]), Board).action, "browser");          // only the extension
+            compare(OpenList.onClick("browser", sessionWith([dev, ext]), Board).action, "browser");     // both
+            compare(OpenList.onClick("browser", sessionWith([ext, dev]), Board).action, "browser");
+            compare(OpenList.onClick("browser", sessionWith([pw]), Board).action, "browser");           // neither: Playwright and the like
+            compare(OpenList.onClick("browser", sessionWith([pw, dev]), Board).action, "backstage");
+            compare(OpenList.browserAction(null), "browser");
+            compare(OpenList.browserAction({}), "browser");
+            [dev, ext, pw].forEach(function (t) { verify(OpenList.canOpen("browser", sessionWith([t]), Board), t); });   // the cursor stays
+        }
+        function w(addr, title) { return { address: addr, title: title, class: "google-chrome", pid: 1 }; }
+        function test_no_window_means_none_and_junk_is_no_window() {
+            compare(OpenList.onWindows("[]").action, "none");
+            compare(OpenList.onWindows(JSON.stringify([{ address: "0x1;rm", title: "t" }, { title: "t" }, null]), false).action, "none");
+        }
+        function test_a_failed_lookup_is_an_error_not_no_window() {
+            compare(OpenList.onWindows("").action, "error");                       // killed, or python missing
+            compare(OpenList.onWindows("not json").action, "error");
+            compare(OpenList.onWindows("{\"error\":\"hyprctl\"}").action, "error");
+            compare(OpenList.onWindows(null).action, "error");
+        }
+        function test_what_the_session_drove_is_remembered_beyond_the_80_entries_window() {
+            read("d", "browser", "x.com", "mcp__chrome-devtools__navigate_page");
+            read("e", "browser", "x.com", "mcp__claude-in-chrome__navigate");
+            for (var i = 0; i < 120; i++) read("f" + i, "files", "a/f" + i + ".md", "Read");
+            var sess = parent.board.sessions["aaaaaaaa"];
+            verify(!sess.entries.some(function (e) { return e.station === "browser"; }));
+            compare(sess.devtools, true);
+            compare(sess.chromeExt, true);
+            compare(OpenList.browserAction(sess), "browser");
+        }
+        function test_rows_tell_same_titled_windows_apart() {
+            var a = w("0x1", "New Tab"), c = w("0x3", "New Tab");
+            a.workspace = "2"; c.workspace = "7";
+            var rows = OpenList.onWindows(JSON.stringify([a, c])).rows;
+            compare(rows[0].sub, "ws 2 \u00b7 google-chrome");
+            compare(rows[1].sub, "ws 7 \u00b7 google-chrome");
+        }
+        function test_one_window_is_focused_at_once() {
+            var d = OpenList.onWindows(JSON.stringify([w("0xab1", "Page")]));
+            compare(d.action, "focus");
+            compare(d.address, "0xab1");
+        }
+        function test_several_windows_are_listed_by_title() {
+            var d = OpenList.onWindows(JSON.stringify([w("0x1", "One - Chrome"), w("0x2", "")]));
+            compare(d.action, "list");
+            compare(d.rows.map(function (r) { return r.text; }), ["One - Chrome", "google-chrome"]);
+            compare(OpenList.pickAction("windows", 1, [], [], d.windows), { action: "focus", address: "0x2" });
+            compare(OpenList.pickAction("windows", 5, [], [], d.windows).action, "none");
+            compare(OpenList.pickAction("windows", 0, [], [], null).action, "none");
+            compare(OpenList.pickAction("note", 0, [], [], d.windows).action, "none");
+        }
+        function test_the_browser_commands_are_lists_without_a_shell() {
+            compare(OpenList.browserListArgs("/t/browserwin.py"), ["python3", "-I", "/t/browserwin.py", "list"]);
+            compare(OpenList.browserFocusArgs("/t/browserwin.py", "0x1"), ["python3", "-I", "/t/browserwin.py", "focus", "0x1"]);
         }
     }
 }

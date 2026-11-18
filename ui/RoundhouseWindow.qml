@@ -155,11 +155,12 @@ FloatingWindow {
     // files lists those. The log keeps no full paths, so the lookup (tools/openable.py) happens now,
     // under the session's folder; names only are read, and opening only ever hands one existing
     // file in the home folder to the editor.
-    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message; "history" recent calls
+    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message; "history" recent calls; "windows" browser windows to pick from
     property string listKey: ""
     property var listItems: []              // the names (mode "items")
     property var listPaths: []              // the files found (mode "paths")
     property var listRowsView: []
+    property var listWins: []               // the browser windows found (mode "windows"); page titles, kept in memory only
     property string listTitle: ""
     property string listNote: ""
     property point listAnchor: Qt.point(0, 0)
@@ -170,7 +171,7 @@ FloatingWindow {
     // one: its answer, whenever it arrives, is ignored (so a cancelled click never opens a file, and
     // two clicks in a row never mix their results).
     property int lookupSeq: 0
-    function closeList() { lookupSeq++; listMode = ""; noteTimer.stop(); }
+    function closeList() { lookupSeq++; listMode = ""; listWins = []; noteTimer.stop(); }
     onShownSidChanged: { closeList(); clearToast(); }
     onListModeChanged: if (listMode !== "") clearToast()      // a list and a toast never show together
 
@@ -184,7 +185,13 @@ FloatingWindow {
         clearToast();
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
-        if (d.action === "memory") lookupMemory();       // whether or not any file was touched
+        if (d.action === "backstage") {      // the agent's own Chrome is in Backstage: say so, touch nothing
+            closeList();
+            toast("The agent's browser is in Backstage; run backstage view to see it");
+            return;
+        }
+        if (d.action === "browser") lookupBrowser();
+        else if (d.action === "memory") lookupMemory();       // whether or not any file was touched
         else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
     }
@@ -220,6 +227,28 @@ FloatingWindow {
                                            strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
         finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
+    property bool browserBusy: false        // a window lookup is running: a second click waits for it
+    function lookupBrowser() {
+        if (browserBusy) return;
+        browserBusy = true;
+        var seq = ++lookupSeq;
+        lookingFor = "";
+        listNote = "Looking for browser windows\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
+        finderC.createObject(win.contentItem, { seq: seq, what: "windows",
+                             command: OpenList.browserListArgs(Quickshell.shellPath("../tools/browserwin.py")) });
+    }
+    function foundWindows(seq, text) {
+        if (!OpenList.accepts(seq, lookupSeq, listMode)) return;
+        var d = OpenList.onWindows(text);
+        if (d.action === "focus") { focusBrowser(d.address); closeList(); }
+        else if (d.action === "list") {
+            listWins = d.windows; listRowsView = d.rows; listTitle = Board.report(null, listKey).title; listMode = "windows";
+        } else if (d.action === "error") { closeList(); toast("Could not list windows");
+        } else { closeList(); toast("No browser window open"); }
+    }
+    function focusBrowser(address) {
+        finderC.createObject(win.contentItem, { what: "focus", command: OpenList.browserFocusArgs(Quickshell.shellPath("../tools/browserwin.py"), address) });
+    }
     function found(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;     // cancelled, or another lookup took over
         var d = OpenList.onResolved(OpenList.parsePaths(text));
@@ -235,8 +264,9 @@ FloatingWindow {
         }
     }
     function picked(index) {
-        var d = OpenList.pickAction(listMode, index, listItems, listPaths);
-        if (d.action === "lookup") lookup(d.item);
+        var d = OpenList.pickAction(listMode, index, listItems, listPaths, listWins);
+        if (d.action === "focus") { focusBrowser(d.address); closeList(); }
+        else if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "openhost") { openHost(d.host); closeList(); }
         else if (d.action === "mcp") { closeList(); toast("MCP servers open nothing"); }
@@ -256,12 +286,23 @@ FloatingWindow {
             id: job
             property int seq: 0
             property var command: []
+            property string what: "files"
             Process {
                 id: proc
                 command: job.command
                 running: true
-                stdout: StdioCollector { onStreamFinished: { win.found(job.seq, text); job.destroy(); } }
+                stdout: StdioCollector { onStreamFinished: {
+                    if (job.what === "focus") return;               // judged by the exit code
+                    if (job.what === "windows") win.foundWindows(job.seq, text); else win.found(job.seq, text);
+                    job.destroy();
+                } }
+                onExited: (code, status) => {
+                    if (job.what !== "focus") return;
+                    if (code !== 0) win.toast("Could not focus the window");
+                    job.destroy();
+                }
             }
+            Component.onDestruction: if (job.what === "windows") win.browserBusy = false
             Timer { interval: 8000; running: true; onTriggered: proc.running = false }
         }
     }

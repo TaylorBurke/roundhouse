@@ -24,7 +24,11 @@ var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
     skills: { names: true },
-    network: { can: networkCan, items: networkItems, list: true }   // hosts (open https://<host>) and MCP servers (history only), always listed
+    network: { can: networkCan, items: networkItems, list: true },   // hosts (open https://<host>) and MCP servers (history only), always listed
+    // a browser window to go to: there is one only if the session used the browser (in memory); which
+    // windows exist is asked at the click (tools/browserwin.py)
+    browser: { can: function (sess) { var b = sess && sess.stations && sess.stations.browser; return !!b && b.count > 0; },
+               action: browserAction }
 };
 
 // A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
@@ -104,7 +108,7 @@ function canOpen(key, sess, board) {
 function onClick(key, sess, board) {
     var h = HANDLERS[key];
     if (!h) return { action: "none" };
-    if (h.action) return { action: h.action };
+    if (h.action) return { action: typeof h.action === "function" ? h.action(sess) : h.action };
     return onNode(itemsOf(key, sess, board, 12), !!h.list);
 }
 
@@ -201,7 +205,8 @@ function accepts(seq, current, mode) {
 
 // What a click on row `index` means: look the name up (a list of names), open the file (a list of
 // files), or nothing (the "... and N more" row, or a row that is not there).
-function pickAction(mode, index, items, paths) {
+function pickAction(mode, index, items, paths, wins) {
+    if (mode === "windows" && wins && wins[index] !== undefined) return { action: "focus", address: wins[index].address };
     // Network rows say what they are (`action` on the item); other stations' items have none.
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "mcp") return { action: "mcp" };
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "openhost")
@@ -278,3 +283,39 @@ function historyRows(calls, now) {
 function openHostArgs(script, host) {
     return ["python3", "-I", script, "open", host];
 }
+
+// ---- Browser: focus a window --------------------------------------------------------------------
+// The agent's own Chrome (the chrome-devtools MCP) runs in Backstage, a separate headless desktop that a click
+// on the real desktop can neither list nor focus. A session that drove only that browser gets a note saying
+// where it is; one that used the Claude-in-Chrome extension (or Playwright and the like) gets the everyday
+// windows. The flags are set by board.js for any call, however long ago.
+function browserAction(sess) {
+    return sess && sess.devtools === true && sess.chromeExt !== true ? "backstage" : "browser";
+}
+
+// What `browserwin.py list` answered (`text`), as a click: error (it did not answer a list), none (say so),
+// one window (focus it) or several (list them by title, workspace and class to pick from).
+// Titles are page titles: shown, never stored.
+function onWindows(text) {
+    var wins = [], ok = false;
+    try {
+        var parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+            ok = true;
+            wins = parsed.filter(function (w) {
+                return w && typeof w.address === "string" && /^0x[0-9a-f]{1,16}$/.test(w.address);
+            });
+        }
+    } catch (e) { }
+    if (!ok) return { action: "error" };          // the lookup failed (no answer, an error): not the same as no window
+    if (wins.length === 0) return { action: "none" };
+    if (wins.length === 1) return { action: "focus", address: wins[0].address };
+    return {
+        action: "list", windows: wins,
+        rows: wins.map(function (w) { return { text: (typeof w.title === "string" && w.title !== "") ? w.title : (w.class || "window"), sub: [w.workspace ? "ws " + w.workspace : "", w.class || ""].filter(function (x) { return x !== ""; }).join(" \u00b7 ") }; })
+    };
+}
+
+// The command that lists the browser windows, and the one that focuses one (re-checked by the tool).
+function browserListArgs(script) { return ["python3", "-I", script, "list"]; }
+function browserFocusArgs(script, address) { return ["python3", "-I", script, "focus", address]; }
