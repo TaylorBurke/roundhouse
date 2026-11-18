@@ -152,7 +152,7 @@ Item {
         function test_other_stations_never_react_even_with_calls_behind_them() {
             read("sh", "shell", "build it", "Bash");
             read("n", "network", "web search", "WebSearch");               // Network reacts only to hosts and MCP servers
-            ["shell", "network", "you", "model", "agents", "hooks", "browser"].forEach(function (k) {
+            ["shell", "network", "you", "model", "agents", "hooks"].forEach(function (k) {
                 compare(area(k).cursorShape, Qt.ArrowCursor, k);
                 mouseClick(map, station(k).x, station(k).y);
             });
@@ -187,7 +187,7 @@ Item {
             var spy = { calls: 0, openables: function () { this.calls++; return [{ label: "x", count: 1 }]; } };
             verify(OpenList.canOpen("memory", sess, spy));                    // always
             compare(spy.calls, 0);                                           // and no names were computed for it
-            ["you", "model", "shell", "network", "browser", "agents", "hooks", "hub", "nope"].forEach(function (k) {
+            ["you", "model", "shell", "network", "agents", "hooks", "hub", "nope"].forEach(function (k) {
                 verify(!OpenList.canOpen(k, sess, spy), k);                  // no entry: nothing to open, even with names
             });
             compare(spy.calls, 0);                                           // no names computed for a key with no entry
@@ -551,6 +551,69 @@ Item {
         }
         function test_the_open_command_is_one_list_with_the_host_as_one_argument() {
             compare(OpenList.openHostArgs("/s/openhost.py", "example.com"), ["python3", "-I", "/s/openhost.py", "open", "example.com"]);
+        // ---- Browser: focus a window ----
+        function test_browser_is_clickable_once_the_session_used_it() {
+            compare(area("browser").cursorShape, Qt.ArrowCursor);
+            read("b", "browser", "example.com", "mcp__claude-in-chrome__navigate");
+            compare(area("browser").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("browser").x, station("browser").y);
+            compare(clicks.count, 1);
+            compare(clicks.signalArguments[0][0], "browser");
+        }
+        function test_browser_can_is_cheap_and_in_memory() {
+            var sess = { stations: { browser: { count: 0 } }, entries: { some: function () { throw "scanned"; } } };
+            verify(!OpenList.canOpen("browser", sess, {}));
+            sess.stations.browser.count = 2;
+            verify(OpenList.canOpen("browser", sess, {}));
+            verify(!OpenList.canOpen("browser", null, {}));
+            verify(!OpenList.canOpen("browser", {}, {}));
+            compare(OpenList.onClick("browser", sess, {}).action, "browser");
+        }
+        function test_the_session_used_devtools_only_if_a_devtools_tool_was_called() {
+            read("a", "browser", "x.com", "mcp__claude-in-chrome__navigate");
+            verify(!OpenList.usesDevtools(parent.board.sessions["aaaaaaaa"]));
+            read("b", "browser", "x.com", "mcp__chrome-devtools__navigate_page");
+            verify(OpenList.usesDevtools(parent.board.sessions["aaaaaaaa"]));
+            verify(!OpenList.usesDevtools(null));
+        }
+        function w(addr, title, devtools) { return { address: addr, title: title, class: "google-chrome", pid: 1, devtools: !!devtools }; }
+        function test_no_window_means_none_and_junk_is_no_window() {
+            compare(OpenList.onWindows("[]", false).action, "none");
+            compare(OpenList.onWindows("", false).action, "none");
+            compare(OpenList.onWindows("not json", true).action, "none");
+            compare(OpenList.onWindows("{\"a\":1}", false).action, "none");
+            compare(OpenList.onWindows(JSON.stringify([{ address: "0x1;rm", title: "t" }, { title: "t" }, null]), false).action, "none");
+        }
+        function test_one_window_is_focused_at_once() {
+            var d = OpenList.onWindows(JSON.stringify([w("0xab1", "Page")]), false);
+            compare(d.action, "focus");
+            compare(d.address, "0xab1");
+        }
+        function test_several_windows_are_listed_by_title() {
+            var d = OpenList.onWindows(JSON.stringify([w("0x1", "One - Chrome"), w("0x2", "")]), false);
+            compare(d.action, "list");
+            compare(d.rows.map(function (r) { return r.text; }), ["One - Chrome", "google-chrome"]);
+            compare(OpenList.pickAction("windows", 1, [], [], d.windows), { action: "focus", address: "0x2" });
+            compare(OpenList.pickAction("windows", 5, [], [], d.windows).action, "none");
+            compare(OpenList.pickAction("windows", 0, [], [], null).action, "none");
+            compare(OpenList.pickAction("note", 0, [], [], d.windows).action, "none");
+        }
+        function test_the_devtools_instance_is_preferred_when_the_session_used_it() {
+            var text = JSON.stringify([w("0x1", "Mine"), w("0x2", "Agent", true), w("0x3", "Other")]);
+            var d = OpenList.onWindows(text, true);
+            compare(d.action, "focus");
+            compare(d.address, "0x2");
+            var e = OpenList.onWindows(text, false);                          // the extension: the everyday windows
+            compare(e.action, "list");
+            compare(e.windows.map(function (x) { return x.address; }), ["0x1", "0x3"]);
+        }
+        function test_the_preferred_kind_missing_falls_back_to_what_there_is() {
+            compare(OpenList.onWindows(JSON.stringify([w("0x1", "Mine")]), true).address, "0x1");
+            compare(OpenList.onWindows(JSON.stringify([w("0x2", "Agent", true)]), false).address, "0x2");
+        }
+        function test_the_browser_commands_are_lists_without_a_shell() {
+            compare(OpenList.browserListArgs("/t/browserwin.py"), ["python3", "-I", "/t/browserwin.py", "list"]);
+            compare(OpenList.browserFocusArgs("/t/browserwin.py", "0x1"), ["python3", "-I", "/t/browserwin.py", "focus", "0x1"]);
         }
     }
 }

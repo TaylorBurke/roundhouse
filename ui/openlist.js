@@ -24,7 +24,11 @@ var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
     skills: { names: true },
-    network: { can: networkCan, items: networkItems, list: true }   // hosts (open https://<host>) and MCP servers (history only), always listed
+    network: { can: networkCan, items: networkItems, list: true },   // hosts (open https://<host>) and MCP servers (history only), always listed
+    // a browser window to go to: there is one only if the session used the browser (in memory); which
+    // windows exist is asked at the click (tools/browserwin.py)
+    browser: { can: function (sess) { var b = sess && sess.stations && sess.stations.browser; return !!b && b.count > 0; },
+               action: "browser" }
 };
 
 // A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
@@ -201,7 +205,8 @@ function accepts(seq, current, mode) {
 
 // What a click on row `index` means: look the name up (a list of names), open the file (a list of
 // files), or nothing (the "... and N more" row, or a row that is not there).
-function pickAction(mode, index, items, paths) {
+function pickAction(mode, index, items, paths, wins) {
+    if (mode === "windows" && wins && wins[index] !== undefined) return { action: "focus", address: wins[index].address };
     // Network rows say what they are (`action` on the item); other stations' items have none.
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "mcp") return { action: "mcp" };
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "openhost")
@@ -278,3 +283,35 @@ function historyRows(calls, now) {
 function openHostArgs(script, host) {
     return ["python3", "-I", script, "open", host];
 }
+
+// ---- Browser: focus a window --------------------------------------------------------------------
+// Whether the session drove the chrome-devtools MCP (it launches a Chrome of its own, which is the one to go to).
+function usesDevtools(sess) {
+    return !!sess && sess.entries.some(function (e) { return e.station === "browser" && typeof e.tool === "string" && e.tool.indexOf("mcp__chrome-devtools__") === 0; });
+}
+
+// What `browserwin.py list` answered (`text`), as a click: none (say so), one window (focus it) or
+// several (list them by title to pick from). The windows to choose from: with the devtools MCP in
+// the session, its own windows if any; otherwise the everyday windows if any; else all of them.
+// Titles are page titles: shown, never stored.
+function onWindows(text, devtools) {
+    var all = [];
+    try {
+        var parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) all = parsed.filter(function (w) {
+            return w && typeof w.address === "string" && /^0x[0-9a-f]{1,16}$/.test(w.address);
+        });
+    } catch (e) { }
+    var mine = all.filter(function (w) { return !!w.devtools === !!devtools; });
+    var wins = mine.length > 0 ? mine : all;
+    if (wins.length === 0) return { action: "none" };
+    if (wins.length === 1) return { action: "focus", address: wins[0].address };
+    return {
+        action: "list", windows: wins,
+        rows: wins.map(function (w) { return { text: (typeof w.title === "string" && w.title !== "") ? w.title : (w.class || "window"), sub: w.devtools ? "devtools" : "" }; })
+    };
+}
+
+// The command that lists the browser windows, and the one that focuses one (re-checked by the tool).
+function browserListArgs(script) { return ["python3", "-I", script, "list"]; }
+function browserFocusArgs(script, address) { return ["python3", "-I", script, "focus", address]; }
