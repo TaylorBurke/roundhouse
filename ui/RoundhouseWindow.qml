@@ -107,11 +107,10 @@ FloatingWindow {
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert
         // Dragging the band moves the window: the compositor takes over the move.
         onDragStarted: win.startSystemMove()
-        onActivate: {
-            var a = win.strip ? win.strip.address : "";
-            if (/^0x[0-9a-f]{1,16}$/.test(a))
-                Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
-        }
+        onActivate: win.focusTerminal(OpenList.terminalAddress(win.strip))
+    }
+    function focusTerminal(a) {
+        if (a) Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
     }
 
     MapView {
@@ -189,6 +188,7 @@ FloatingWindow {
             toast("Nothing to open at " + Board.report(null, key).title + " yet");
             return;
         }
+        if (d.action === "you") { youClicked(anchor); return; }
         clearToast();
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
@@ -202,6 +202,38 @@ FloatingWindow {
         else if (d.action === "memory") lookupMemory();       // whether or not any file was touched
         else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
+    }
+    // A left click on You: focus the terminal and, if the session is idle, list drafts to type there.
+    // A pick runs tools/draft.py, which focuses the terminal again, checks it is the active window and
+    // types the text without pressing Enter (the owner reviews and submits). It says why on a refusal.
+    function youClicked(anchor) {
+        var y = OpenList.onYou(strip, session, settings, Board);
+        closeList();
+        if (!y.address) { toast(y.toast); return; }
+        clearToast();
+        focusTerminal(y.address);
+        if (y.drafts.length === 0) return;
+        listKey = "you"; listAnchor = anchor; listTitle = "Draft";
+        lookupSeq++; listItems = y.drafts; listPaths = [];
+        listRowsView = y.drafts.map(function (t) { return { text: t, sub: "" }; });
+        listMode = "drafts"; noteTimer.stop();
+    }
+    function typeDraft(text) {
+        var a = OpenList.terminalAddress(strip);
+        if (a) draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
+    }
+    Component {
+        id: draftC
+        Item {
+            id: job
+            property var command: []
+            Process {
+                command: job.command
+                running: true
+                stderr: StdioCollector { onStreamFinished: { if (text.trim() !== "") win.toast(text.trim()); job.destroy(); } }
+            }
+            Timer { interval: 8000; running: true; onTriggered: job.destroy() }
+        }
     }
     // A right click on any station: its recent calls, newest first (names only, from the log), or a
     // toast when there are none. The rows are a snapshot of the moment of the click.
@@ -339,6 +371,7 @@ FloatingWindow {
         if (d.action === "focus") { focusBrowser(d.address); closeList(); }
         else if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
+        else if (d.action === "draft") { closeList(); typeDraft(d.text); }
         else if (d.action === "openhost") { openHost(d.host); closeList(); }
         else if (d.action === "mcp") { closeList(); toast("MCP servers open nothing"); }
         else if (d.action === "refused") { closeList(); toast("Not a plain hostname, not opened"); }

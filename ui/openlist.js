@@ -23,6 +23,7 @@
 var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
+    you: { always: true, action: "you" },           // focuses the terminal; the window offers the drafts
     skills: { names: true },
     model: { can: modelCan, action: "turn" },       // the current turn from the transcript, read at the click (ui/turn.js)
     network: { can: networkCan, items: networkItems, list: true },   // hosts (open https://<host>) and MCP servers (history only), always listed
@@ -149,6 +150,20 @@ function onClick(key, sess, board) {
     return onNode(itemsOf(key, sess, board, 12), !!h.list);
 }
 
+// A strip's terminal address if it is a window address, else "".
+function terminalAddress(strip) {
+    var a = strip ? strip.address : "";
+    return typeof a === "string" && /^0x[0-9a-f]{1,16}$/.test(a) ? a : "";
+}
+
+// What a left click at You does: no known terminal (a toast), else focus it and, when the session is
+// idle and drafts are on, offer `drafts` (Board.drafts) to type. `settings` is { drafts, draftPrompts }.
+function onYou(strip, sess, settings, board) {
+    var address = terminalAddress(strip);
+    if (!address) return { address: "", drafts: [], toast: "No terminal known for this session" };
+    return { address: address, drafts: board.drafts(sess, settings.drafts, settings.draftPrompts), toast: "" };
+}
+
 // The names a station can open (from Board.openables): none, one (look it up and open it), or
 // several (list them to pick from).
 function onNode(items, alwaysList) {
@@ -250,6 +265,7 @@ function pickAction(mode, index, items, paths, wins) {
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "openhost")
         return isHost(items[index].host) ? { action: "openhost", host: items[index].host } : { action: "refused" };
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
+    if (mode === "drafts" && items && typeof items[index] === "string") return { action: "draft", text: items[index] };
     if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
     return { action: "none" };
 }

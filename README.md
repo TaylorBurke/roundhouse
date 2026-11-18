@@ -56,6 +56,10 @@ starts no processes, prints nothing and always exits 0, and the hooks are regist
 The log is on tmpfs, readable only by you, and gone at logout. The waiting, heat and slow-call cues
 are worked out on screen from the same names and timestamps; they add nothing to the log.
 
+Draft prompts (click You) are the one place roundhouse sends keystrokes: only the chosen draft's
+text, to the session's own terminal, only while that window is the active one, and never Enter. A
+draft holds at most a cleaned, shortened call name from the log; it is not written anywhere.
+
 One exception to "names only", and only on screen: if you use claude-strip, a session's window
 shows the strip's task title (a summary of your prompts; see "The session header"). It is read
 from the strip's own file, shown, and never written to roundhouse's log.
@@ -235,6 +239,21 @@ What moves and what it means:
   transcript is read from its end, and a very long one has its oldest points dropped; the panel says so
   in one line, as it does when several sessions share the 8-character id (the newest is shown). No
   transcript found: a short note instead. A click anywhere else, or Esc, closes it.
+- **Click You** to jump to the session's terminal (a session window needs claude-strip to know it) and,
+  when the session looks idle (no call running, no permission question open), a short list of drafts:
+  one from what just happened ("Why did the Bash call fail?" for a call that failed since your last
+  prompt, "What are you waiting on?" after a refused one, else "continue"), then canned ones from
+  `config.json`. A draft never contains text from the log except a tool's name, and only if it is
+  letters, digits, `_` or `-` (else "that call"). Picking one **types the text into the terminal and
+  never presses Enter or any other key**; you review and submit it yourself. It is typed by
+  `tools/draft.py`, which focuses the terminal, checks with `hyprctl activewindow` (twice, the last
+  time just before typing) that its address is the active window (nothing is typed otherwise),
+  accepts only a window address and 1-300 characters with no control, format (bidi, zero-width),
+  private-use or line-break characters, and runs `wtype -- TEXT` with no shell. Needs `wtype` (a toast
+  says so if it is missing). The idle check is repeated at the pick; a busy session just gets its
+  terminal focused. Known limits: idleness is inferred from tool events only, so a long streaming
+  reply with no tool calls looks idle; and a half-typed prompt already in the terminal is appended to,
+  not replaced.
 - **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
   status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started, and the
   subagent's type (`agent` if unknown) for a call a subagent made. It covers the last 80 events of the session, so older calls are gone. A station
@@ -261,6 +280,7 @@ What moves and what it means:
 | --- | --- | --- |
 | Context window size | `~/.config/roundhouse/config.json`: `{"contextWindow": "1m"}` (a number, `"200k"`, `"1m"` or `"auto"`); watched, no restart | guessed from the model name, else 200k |
 | Slow-call threshold | `~/.config/roundhouse/config.json`: `{"slowCallSeconds": 120}` (seconds; `0` or `"off"` disables); watched | 120 (2 minutes) |
+| Draft prompts on a click at You | `config.json`: `{"drafts": false}` turns them off (You then only focuses the terminal); `{"draftPrompts": ["continue", "Run the tests"]}` replaces the canned list (each 1-300 characters, no line breaks; `[]`, or a list with no valid entry, leaves only the context draft); watched | on, two canned drafts |
 | Colours | follows the Omarchy theme; `ROUNDHOUSE_THEME=/path/to/colors.toml` tries another | the current theme |
 | Window size, always on top | edit `hypr/roundhouse.lua` (`size`, `pin`) | 360x680; the all-sessions window pinned, session windows not |
 | Keys in the all-sessions window | `[` `]` or arrows step, space lists, `1`-`9` pick, `a` auto, `w` pop out, escape | |

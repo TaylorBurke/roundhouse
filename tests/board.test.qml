@@ -515,6 +515,38 @@ QtObject {
         })(), { shell: 210 });
         check("slow off", [Board.slow(sess(b), 9999, 0), Board.slow(null, 9999, 120)], [{}, {}]);
         check("parseSlow", [Board.parseSlow(undefined), Board.parseSlow(30), Board.parseSlow("45"), Board.parseSlow(0), Board.parseSlow("off"), Board.parseSlow(-5), Board.parseSlow("junk")], [120, 30, 45, 0, 0, 120, 120]);
+        // draft prompts: only when idle; context drafts first, then the canned list
+        b = Board.newBoard();
+        check("drafts: no session", Board.drafts(null, true, null), []);
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
+        check("drafts: idle after a prompt", Board.drafts(sess(b), true, null), ["continue", "Summarize what you did so far", "What are the next steps?"]);
+        check("drafts: off", Board.drafts(sess(b), false, null), []);
+        check("drafts: replaced list", Board.drafts(sess(b), true, ["Run the tests", "continue", "bad\nline", ""]), ["continue", "Run the tests"]);
+        check("drafts: empty replacement", Board.drafts(sess(b), true, []), ["continue"]);
+        Board.fold(b, ev({ ts: 2, ev: "tool_start", id: "r1", station: "shell", label: "make", tool: "Bash" }));
+        check("drafts: not while a call runs", Board.drafts(sess(b), true, null), []);
+        Board.fold(b, ev({ ts: 2.5, ev: "tool_end", id: "r1", station: "shell", label: "make", tool: "Bash", status: "ok" }));
+        Board.fold(b, ev({ ts: 3, ev: "tool_end", id: "r3", station: "shell", label: "make\nrm -rf /\u001b[2J " + "x".repeat(100), tool: "Bash", status: "err" }));
+        var d = Board.drafts(sess(b), true, null);
+        check("drafts: failed call named, cleaned and capped", [d.length, d[0].indexOf("Why did make rm -rf /") === 0, /[\u0000-\u001f\u007f]/.test(d[0]), d[0].length <= 74, d[1]], [3, true, false, true, "Summarize what you did so far"]);
+        Board.fold(b, ev({ ts: 4, ev: "prompt" }));
+        check("drafts: a failure before the last prompt is not offered", Board.drafts(sess(b), true, null)[0], "continue");
+        Board.fold(b, ev({ ts: 5, ev: "tool_start", id: "r2", station: "shell", label: "rm", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 6, ev: "batch" }));
+        check("drafts: a refused call asks what is awaited", Board.drafts(sess(b), true, [])[0], "What are you waiting on?");
+        Board.fold(b, ev({ ts: 7, ev: "ask", tool: "Bash" }));
+        check("drafts: not while a permission question is open", Board.drafts(sess(b), true, null), []);
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 2, ev: "agent_start", agent: "a1", type: "Explore" }));
+        check("drafts: not while a subagent runs", Board.drafts(sess(b), true, null), []);
+        Board.fold(b, ev({ ts: 3, ev: "agent_end", agent: "a1" }));
+        check("drafts: idle again", Board.drafts(sess(b), true, null)[0], "continue");
+        Board.fold(b, ev({ ts: 4, ev: "session_end" }));
+        check("drafts: not after the session ended", Board.drafts(sess(b), true, null), []);
+        check("draftLabel", [Board.draftLabel("a\tb\n c"), Board.draftLabel(null), Board.draftLabel("x".repeat(80)).length], ["a b c", "", 60]);
+        check("parseDrafts", [Board.parseDrafts(null), Board.parseDrafts({ drafts: false }), Board.parseDrafts({ draftPrompts: ["a", 5, "b\nc", "d"] }), Board.parseDrafts({ draftPrompts: "x" }), Board.parseDrafts({ draftPrompts: ["x".repeat(301)] })],
+            [{ enabled: true, prompts: null }, { enabled: false, prompts: null }, { enabled: true, prompts: ["a", "d"] }, { enabled: true, prompts: null }, { enabled: true, prompts: [] }]);
 
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
