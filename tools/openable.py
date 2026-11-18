@@ -2,6 +2,7 @@
 """Find the file behind a name on the map, and open it in the editor.
 
   openable.py resolve KIND LABEL [--cwd DIR] [--sid ID] [--dir NAME]   prints {"paths": [...]} (best first)
+  openable.py task ID [--cwd DIR] [--sid ID] [--dir NAME]     prints {"paths": [...]}: a background task's output file
   openable.py list memory [--cwd DIR] [--sid ID] [--dir NAME]           prints the project's own memory files
   openable.py open PATH                                       opens one file in the editor
 
@@ -14,6 +15,11 @@ full paths, so a click looks the name up on disk now:
                  first looked for in that project's own memory folder.
   skills         ~/.claude/skills, the session's .claude/skills, then plugin folders (the installed
                  copy first; translated docs and other tools' copies last).
+
+A background task (`task`) is looked up by its id and the session id: Claude Code writes its output to
+/tmp/claude-<uid>/<project>/<full session id>/tasks/<id>.output (for a background subagent that file is a
+symlink into ~/.claude/projects/.../subagents/, which is fine: it ends up under home). Only an existing
+regular file passes the same check as everything else.
 
 Only names are read, never file contents. A result is an existing regular file under the home folder
 (or the session's folder), and a symlink that leads out of the home folder is refused, except under
@@ -345,6 +351,34 @@ def list_memory(cwd=None, name=None):
     return paths[:MAX_PATHS]
 
 
+TASK_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def resolve_task(task, sid):
+    """The output file of background task `task` of the session whose id starts with `sid` (the map keeps
+    the first 8 characters): <scratch>/<project>/<session id>/tasks/<task>.output. Only the names of the
+    folders are listed, nothing is read. A task id or session id that is not a plain name finds nothing."""
+    if not isinstance(task, str) or not TASK_ID.fullmatch(task) or not isinstance(sid, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8}", sid):
+        return []
+    root = scratch_root()
+    if not scratch_ok():
+        return []
+    found = []
+    try:
+        for project in sorted(os.listdir(root)):
+            base = os.path.join(root, project)
+            if not os.path.isdir(base) or os.path.islink(base):
+                continue
+            for session in sorted(os.listdir(base)):
+                if session[:8] == sid:
+                    path = usable(os.path.join(base, session, "tasks", task + ".output"))
+                    if path:
+                        found.append(path)
+    except OSError:
+        return found
+    return sorted(set(found), key=lambda p: -os.path.getmtime(p))[:MAX_PATHS]
+
+
 def resolve(kind, label, cwd=None, name=None):
     if kind == "skills":
         return resolve_skills(label, cwd, name)
@@ -398,6 +432,11 @@ def main(argv):
         if argv[:1] == ["resolve"] and len(argv) >= 3 and argv[1] in KINDS:
             cwd, name = parse_options(argv[3:])
             print(json.dumps({"paths": resolve(argv[1], argv[2], cwd, name)}))
+            return 0
+        if argv[:1] == ["task"] and len(argv) >= 2:
+            _, _ = parse_options(argv[2:])
+            sid = argv[argv.index("--sid") + 1] if "--sid" in argv else ""
+            print(json.dumps({"paths": resolve_task(argv[1], sid)}))
             return 0
         if argv[:2] == ["list", "memory"]:
             cwd, name = parse_options(argv[2:])

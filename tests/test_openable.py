@@ -642,6 +642,65 @@ class NestedMemory(World):
         self.assertEqual(self.resolve("memory", "memory/x.md"), [top])
 
 
+class Tasks(World):
+    """A background task's output: <scratch>/<project>/<session id>/tasks/<id>.output."""
+    SID = "0123abcd-1111-2222-3333-444455556666"
+
+    def out(self, task="bq1", project="-home-x-proj", session=None):
+        return os.path.join(self.scratch, project, session or self.SID, "tasks", task + ".output")
+
+    def test_the_output_file_is_found_by_task_id_and_the_first_8_of_the_session_id(self):
+        want = touch(self.out())
+        touch(self.out("other"))
+        self.assertEqual(openable.resolve_task("bq1", "0123abcd"), [want])
+
+    def test_another_session_or_task_or_nothing_finds_nothing(self):
+        touch(self.out())
+        self.assertEqual(openable.resolve_task("bq1", "ffffffff"), [])
+        self.assertEqual(openable.resolve_task("nope", "0123abcd"), [])
+        self.assertEqual(openable.resolve_task("bq1", ""), [])
+
+    def test_ids_that_are_not_plain_names_find_nothing(self):
+        touch(self.out())
+        for task, sid in (("../x", "0123abcd"), ("bq1/../bq1", "0123abcd"), ("", "0123abcd"), ("b" * 65, "0123abcd"),
+                          ("bq1", "0123abc"), ("bq1", "../../ab"), (None, "0123abcd"), ("bq1", None)):
+            self.assertEqual(openable.resolve_task(task, sid), [], (task, sid))
+
+    def test_a_link_out_of_home_and_scratch_is_refused_but_a_subagent_transcript_in_home_is_fine(self):
+        outside = tempfile.TemporaryDirectory()
+        target = touch(os.path.join(os.path.realpath(outside.name), "secret.txt"))
+        os.makedirs(os.path.dirname(self.out("evil")), exist_ok=True)
+        os.symlink(target, self.out("evil"))
+        self.assertEqual(openable.resolve_task("evil", "0123abcd"), [])
+        outside.cleanup()
+        jsonl = touch(self.h(".claude", "projects", "p", self.SID, "subagents", "agent-a1.jsonl"))
+        os.makedirs(os.path.dirname(self.out("a1")), exist_ok=True)
+        os.symlink(jsonl, self.out("a1"))
+        self.assertEqual(openable.resolve_task("a1", "0123abcd"), [self.out("a1")])
+
+    def test_a_scratch_folder_that_is_not_private_is_not_used(self):
+        touch(self.out())
+        os.chmod(self.scratch, 0o777)
+        self.assertEqual(openable.resolve_task("bq1", "0123abcd"), [])
+
+    def test_a_directory_is_not_a_file(self):
+        os.makedirs(self.out())
+        self.assertEqual(openable.resolve_task("bq1", "0123abcd"), [])
+
+    def test_the_command_prints_the_same_and_a_bad_id_prints_an_empty_list(self):
+        want = touch(self.out())
+        saved = (openable.HOME, openable.scratch_root)
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = openable.main(["task", "bq1", "--sid", "0123abcd"])
+        self.assertEqual((code, json.loads(buf.getvalue())), (0, {"paths": [want]}))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            openable.main(["task", "../x", "--sid", "0123abcd"])
+        self.assertEqual(json.loads(buf.getvalue()), {"paths": []})
+
+
 class Command(unittest.TestCase):
     def run_tool(self, *args):
         return subprocess.run([TOOL, *args], capture_output=True, text=True, timeout=30)
@@ -657,7 +716,7 @@ class Command(unittest.TestCase):
 
     def test_bad_arguments_exit_2(self):
         for args in ((), ("resolve",), ("resolve", "files"), ("resolve", "agents", "x"), ("resolve", "files", "a/b", "--cwd"),
-                     ("resolve", "files", "a/b", "--bogus", "x"), ("open",), ("open", "a", "b"), ("launch", "x")):
+                     ("resolve", "files", "a/b", "--bogus", "x"), ("open",), ("open", "a", "b"), ("task",), ("task", "x", "--bogus", "y"), ("launch", "x")):
             self.assertEqual(self.run_tool(*args).returncode, 2, args)
 
     def test_a_relative_cwd_is_ignored(self):
