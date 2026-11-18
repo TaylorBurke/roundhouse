@@ -80,6 +80,8 @@ nothing else:**
    An existing file of that name that is not ours is never replaced.
 3. **`~/.config/hypr/hyprland.lua`** (asks, default no): appends the one line
    `dofile("<this folder>/hypr/roundhouse.lua")  -- roundhouse`, which floats and sizes the windows.
+   Without it Hyprland tiles them (the window asks for 360x680 but nothing makes it float), so say yes
+   unless you float them some other way.
    It backs the file up, reloads Hyprland and checks `hyprctl configerrors`, and puts the backup
    back if there is any error. You can add that line yourself instead.
 

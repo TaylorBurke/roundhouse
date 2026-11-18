@@ -291,7 +291,8 @@ def step_hypr(run, install, path, with_hypr, reload_check):
             return
         if not run.confirm("Add this line to your Hyprland config?", default=False,
                            needs_flag=with_hypr if run.yes else None):
-            print("  skipped. To do it yourself, add this line:\n    " + hypr_line())
+            print("  skipped. Without it Hyprland tiles the windows instead of floating them.\n"
+                  "  To do it yourself, add this line:\n    " + hypr_line())
             return
     else:
         if not has_hypr_line(old):
