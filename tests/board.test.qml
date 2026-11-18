@@ -333,6 +333,7 @@ QtObject {
         check("earlier stop leaves a newer task", sess(b).stations.shell.running, 1);
         Board.fold(b, ev({ ts: 7, ev: "task_end", task: "t3", status: "err" }));
         check("failed task leaves a dot", [sess(b).stations.shell.running, sess(b).errDots.shell], [0, 1]);
+        check("an ended task keeps its end time", [sess(b).tasks.t1.end, sess(b).tasks.t2.end, sess(b).tasks.t3.end, sess(b).tasks.t1.since], [3, 5, 7, 1]);
 
         // subagents: a running one counts, an end with no start is ignored, a background one ends its task
         b = Board.newBoard();

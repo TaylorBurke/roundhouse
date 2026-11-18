@@ -37,7 +37,7 @@ function newSession(sid) {
         chromeExt: false,         // a Claude-in-Chrome extension tool was called this session (likewise)
         entries: [],              // newest last, at most MAX_ENTRIES
         byId: {},                 // tool-use id -> entry still in entries
-        tasks: {},                // background task id -> { station, label, status }
+        tasks: {},                // background task id -> { station, label, status, since, end }
         agents: {}                // agent id -> { type, running }
     };
 }
@@ -194,6 +194,7 @@ function fold(board, ev) {
         var task = sess.tasks[ev.task];
         if (task && task.status === "running") {
             task.status = ev.status === "err" ? "err" : "ok";
+            task.end = ev.ts;
             if (task.status === "err") dot(sess, task.station, 1);
         }
         note(sess, ev, task ? task.station : "shell", "background task " + (ev.status === "err" ? "failed" : "done"), ev.status === "err" ? "err" : "ok");
@@ -207,7 +208,7 @@ function fold(board, ev) {
         (ev.bg || []).forEach(function (t) { if (t && t.id) listed[t.id] = true; });
         Object.keys(sess.tasks).forEach(function (id) {     // started before this stop, not listed: finished
             var t = sess.tasks[id];
-            if (t.status === "running" && t.since <= ev.ts && !listed[id]) t.status = "ok";
+            if (t.status === "running" && t.since <= ev.ts && !listed[id]) { t.status = "ok"; t.end = ev.ts; }
         });
         note(sess, ev, "you", "answer ready");
     } else if (kind === "stop_error") {
@@ -231,7 +232,7 @@ function fold(board, ev) {
         var agent = sess.agents[ev.agent];          // an end with no matching start is an internal agent
         if (agent) {
             agent.running = false;
-            if (sess.tasks[ev.agent] && sess.tasks[ev.agent].status === "running") sess.tasks[ev.agent].status = "ok";
+            if (sess.tasks[ev.agent] && sess.tasks[ev.agent].status === "running") { sess.tasks[ev.agent].status = "ok"; sess.tasks[ev.agent].end = ev.ts; }
             note(sess, ev, "agents", agent.type + " finished");
         }
     } else if (kind === "compact_start") {

@@ -184,6 +184,12 @@ What moves and what it means:
   since 12:03"). The hub shows the raw token count, the window size and whether it comes from your
   setting or is a guess, and how old the reading is. Call names show on screen only; nothing is written.
   ![Shell tooltip](docs/tooltip-shell.png) ![Hub tooltip](docs/tooltip-hub.png)
+- **Click Shell** (a hand cursor once the session has started a background task) lists its background
+  tasks: running ones first, then finished ones, each with its status and elapsed time (`ok · 5m`). Picking
+  one opens its output file in your editor: Claude Code writes it to
+  `/tmp/claude-<uid>/<project>/<session id>/tasks/<task id>.output`, found from the task id and the session id
+  by folder names only. If the file is gone, a short toast says so. The same file checks apply (an existing
+  regular file in your home folder or Claude's scratch folder; a link that leads elsewhere is refused).
 - **Click Files, Memory, Skills or Browser** (the station has a faint backlight, and the pointer turns into a hand,
   when there is something to open). **Files** and **Skills** open the file behind a name in your editor
   (`omarchy launch editor`; pictures, video, audio and PDFs go to your default viewer): one name opens

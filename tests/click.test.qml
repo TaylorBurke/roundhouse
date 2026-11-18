@@ -182,6 +182,48 @@ Item {
         }
 
         // ---- the table of what a left click does ----
+        // ---- Shell: background tasks ----
+        function bg(id, task, label) {
+            parent.fold({ ts: 3, ev: "tool_end", id: id, station: "shell", label: label, tool: "Bash", status: "ok", task: task });
+        }
+        function test_shell_is_a_hand_only_once_a_background_task_exists() {
+            compare(area("shell").cursorShape, Qt.ArrowCursor);
+            read("r1", "shell", "ls", "Bash");                       // an ordinary command is not a task
+            compare(area("shell").cursorShape, Qt.ArrowCursor);
+            bg("b1", "t1", "sleep 99");
+            compare(area("shell").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("shell").x, station("shell").y);
+            compare(clicks.signalArguments[0][0], "shell");
+        }
+        function test_the_task_list_has_running_first_then_finished_with_elapsed_time() {
+            var now = Date.now() / 1000;
+            parent.fold({ ts: now - 700, ev: "tool_end", id: "a", station: "shell", label: "old build", tool: "Bash", status: "ok", task: "t1" });
+            parent.fold({ ts: now - 400, ev: "task_end", task: "t1", status: "ok" });
+            parent.fold({ ts: now - 300, ev: "tool_end", id: "b", station: "shell", label: "failing", tool: "Bash", status: "ok", task: "t2" });
+            parent.fold({ ts: now - 250, ev: "task_end", task: "t2", status: "err" });
+            parent.fold({ ts: now - 120, ev: "tool_end", id: "c", station: "shell", label: "server", tool: "Bash", status: "ok", task: "t3" });
+            var sess = board.sessions["aaaaaaaa"];
+            var d = OpenList.onClick("shell", sess, Board);
+            compare(d.action, "list");
+            compare(d.items.map(function (i) { return i.task; }), ["t3", "t2", "t1"]);
+            compare(d.rows.map(function (r) { return r.text; }), ["server", "failing", "old build"]);
+            compare(d.rows[0].sub, "running \u00b7 2m");
+            compare(d.rows[1].sub, "err \u00b7 50s");
+            compare(d.rows[2].sub, "ok \u00b7 5m");
+        }
+        function test_one_task_is_still_listed_and_a_pick_looks_it_up_by_id() {
+            bg("b1", "t1", "sleep 99");
+            var d = OpenList.onClick("shell", board.sessions["aaaaaaaa"], Board);
+            compare(d.action, "list");
+            compare(OpenList.pickAction("items", 0, d.items, []).item.task, "t1");
+            compare(OpenList.lookupArgs("/x/openable.py", "shell", "sleep 99", "/home/p", "proj", "aaaaaaaa", "t1"),
+                    ["python3", "-I", "/x/openable.py", "task", "t1", "--sid", "aaaaaaaa"]);
+        }
+        function test_background_agents_are_not_listed_under_shell() {
+            parent.fold({ ts: 3, ev: "tool_end", id: "g", station: "agents", label: "Explore", tool: "Agent", status: "ok", task: "ag1" });
+            verify(!OpenList.canOpen("shell", board.sessions["aaaaaaaa"], Board));
+        }
+
         function test_the_handler_table_decides_what_can_open() {
             var sess = { n: 0 };
             var spy = { calls: 0, openables: function () { this.calls++; return [{ label: "x", count: 1 }]; } };
@@ -223,6 +265,7 @@ Item {
             var calls = 0;
             try {
                 OpenList.HANDLERS.hooks = { can: true, items: function () { calls++; return [{ label: "h", count: 1 }]; } };
+                var realShell = OpenList.HANDLERS.shell;
                 OpenList.HANDLERS.shell = { can: function (s) { return !!s; }, items: function () { calls++; return []; } };
                 OpenList.HANDLERS.agents = { items: function () { calls++; return []; } };
                 for (var i = 0; i < 5; i++) ["hooks", "shell", "agents"].forEach(function (k) { OpenList.canOpen(k, {}, board); });
@@ -238,7 +281,7 @@ Item {
                 OpenList.HANDLERS.hooks = { can: false, items: function () { calls++; return []; } };
                 verify(!OpenList.canOpen("hooks", null, board));
             } finally {
-                delete OpenList.HANDLERS.hooks; delete OpenList.HANDLERS.shell; delete OpenList.HANDLERS.agents;
+                delete OpenList.HANDLERS.hooks; OpenList.HANDLERS.shell = realShell; delete OpenList.HANDLERS.agents;
             }
         }
         function test_a_left_click_goes_through_the_table_as_it_did() {

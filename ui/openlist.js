@@ -29,7 +29,8 @@ var HANDLERS = {
     // a browser window to go to: there is one only if the session used the browser (in memory); which
     // windows exist is asked at the click (tools/browserwin.py)
     browser: { can: function (sess) { var b = sess && sess.stations && sess.stations.browser; return !!b && b.count > 0; },
-               action: browserAction }
+               action: browserAction },
+    shell: { can: function (sess) { return hasTasks(sess); }, items: taskItems, list: true }     // background tasks: running first, then finished
 };
 
 // Cheap (in memory): Model opens its turn panel once the session has any entry; whether the transcript
@@ -92,6 +93,35 @@ function networkItems(sess, key, max) {
     return out.slice(0, max || 12);
 }
 
+// Background tasks of the shell station. `can` only looks at whether sess.tasks has an entry.
+function shellTasks(sess) {
+    var out = [];
+    if (!sess || !sess.tasks) return out;
+    Object.keys(sess.tasks).forEach(function (id) {
+        if (sess.tasks[id].station === "shell") out.push(id);
+    });
+    return out;
+}
+function hasTasks(sess) { return shellTasks(sess).length > 0; }
+
+// The click-time list: running tasks first, then finished ones, each newest first, with the status
+// and the elapsed time (since the start, or between start and end). `task` marks the item as a task
+// to look up by id (the label is only what the map shows).
+function taskItems(sess, key, max) {
+    var now = Date.now() / 1000;
+    var list = shellTasks(sess).map(function (id) {
+        var t = sess.tasks[id];
+        var end = t.status === "running" ? now : (t.end !== undefined ? t.end : null);
+        var sub = t.status + (end !== null ? " \u00b7 " + durationLabel((end - t.since) * 1000) : "");
+        return { task: id, label: t.label || id, count: 1, status: t.status, since: t.since, sub: sub };
+    });
+    list.sort(function (a, b) {
+        var ra = a.status === "running" ? 0 : 1, rb = b.status === "running" ? 0 : 1;
+        return ra !== rb ? ra - rb : b.since - a.since;
+    });
+    return list.slice(0, max);
+}
+
 // The items behind a left click at `key`, at most `max`: [] for a station with no entry or an entry
 // that is always open. `board` is board.js (this file cannot import it).
 function itemsOf(key, sess, board, max) {
@@ -127,7 +157,7 @@ function onNode(items, alwaysList) {
     return {
         action: "list", items: items,
         rows: items.map(function (it) {
-            var sub = it.count > 1 ? "×" + it.count : "";
+            var sub = it.sub !== undefined ? it.sub : it.count > 1 ? "×" + it.count : "";
             return { text: it.label, sub: it.kind === "mcp" ? (sub ? "MCP \u00b7 " + sub : "MCP") : sub };
         })
     };
@@ -176,7 +206,8 @@ function memoryRows(paths, home) {
 // The command that looks a name up: python3 tools/openable.py resolve KIND LABEL, with the session's
 // folder if known (--cwd), else the session's folder name (--dir). Each is one argument, so a name
 // with spaces or odd characters is never split or interpreted.
-function lookupArgs(script, kind, label, cwd, dir, sid) {
+function lookupArgs(script, kind, label, cwd, dir, sid, task) {
+    if (task) return ["python3", "-I", script, "task", task, "--sid", sid || ""];     // the session id alone finds the folder
     var args = ["python3", "-I", script, "resolve", kind, label];
     return args.concat(folderArgs(cwd, dir, sid));
 }

@@ -221,7 +221,7 @@ FloatingWindow {
         lookingFor = item.label;
         listNote = "Looking for " + item.label + "\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
         var args = OpenList.lookupArgs(Quickshell.shellPath("../tools/openable.py"), listKey, item.label,
-                                       strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
+                                       strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid, item.task || "");
         finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
     // Model: the current turn, read from the transcript now (tools/transcript.py turn SID; the id is the only
@@ -289,6 +289,9 @@ FloatingWindow {
             listPaths = r.paths; listRowsView = r.rows;
             listTitle = listKey === "memory" ? "Memory" : Board.report(null, listKey).title + " \u00b7 " + lookingFor;
             listMode = "paths";
+        } else if (listKey === "shell") {            // a task whose output file is not there: a toast, not a list
+            closeList();
+            toast("No output file found for " + lookingFor);
         } else {
             listNote = listKey === "memory" ? "No memory files found for this project" : "Could not find " + lookingFor;
             listRowsView = []; listMode = "note"; noteTimer.restart();
