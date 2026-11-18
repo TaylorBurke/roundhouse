@@ -49,7 +49,10 @@ class SameRuleAsTheWindow(unittest.TestCase):
     def js_pattern(self):
         import re
         src = open(os.path.join(ROOT, "ui", "openlist.js")).read()
-        return re.search(r"var HOST_RE = /\^(.*)\$/;", src).group(1)
+        found = re.search(r"HOST_RE\s*=\s*/\^(.*)\$/[a-z]*\s*;", src)
+        if not found:
+            self.fail("ui/openlist.js: could not find a line like `HOST_RE = /^...$/;` to compare with openhost._HOST")
+        return found.group(1)
 
     def test_the_two_patterns_are_the_same_text(self):
         self.assertEqual(self.js_pattern(), openhost._HOST.pattern)

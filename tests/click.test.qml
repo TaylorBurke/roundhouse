@@ -475,9 +475,42 @@ Item {
         }
         function test_network_is_clickable_once_there_is_a_host_or_a_server() {
             net("a", "web search", "WebSearch");
-            compare(area("network").cursorShape !== Qt.PointingHandCursor, true);
+            compare(area("network").cursorShape, Qt.ArrowCursor);
             net("b", "example.com", "WebFetch");
             compare(area("network").cursorShape, Qt.PointingHandCursor);
+        }
+        function test_a_click_on_network_with_only_a_web_search_does_nothing() {
+            net("a", "web search", "WebSearch");
+            mouseClick(map, station("network").x, station("network").y);
+            compare(clicks.count, 0);                                  // no list, so the window raises no toast either
+            compare(OpenList.onClick("network", sessNow(), Board).action, "none");
+        }
+        function test_ip_literals_are_not_offered_as_hosts() {
+            ["192.168.0.1", "1.2.3.4", "10.0.0.1"].forEach(function (ip, i) { net("ip" + i, ip, "WebFetch"); });
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 0);
+            verify(!OpenList.canOpen("network", sessNow(), Board));
+            net("d", "1.2.3.example", "WebFetch");                     // a letter in the last label: a name
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 1);
+        }
+        function test_a_failed_fetch_is_not_offered() {
+            parent.fold({ ts: 3, ev: "tool_end", id: "f", station: "network", label: "down.example.com", tool: "WebFetch", status: "err" });
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 0);
+            verify(!OpenList.canOpen("network", sessNow(), Board));
+            net("g", "down.example.com", "WebFetch");                  // a later success makes it a host
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 1);
+        }
+        function test_a_refused_fetch_is_not_offered() {
+            parent.fold({ ts: 3, ev: "tool_start", id: "r", station: "network", label: "no.example.com", tool: "WebFetch" });
+            parent.fold({ ts: 4, ev: "batch" });                       // an open call at a batch was refused
+            compare(sessNow().entries.filter(function (e) { return e.id === "r"; })[0].status, "blocked");
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 0);
+            verify(!OpenList.canOpen("network", sessNow(), Board));
+        }
+        function test_an_mcp_tool_name_needs_a_tool_part() {
+            net("a", "gh", "mcp__gh__", 3);
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 0);
+            net("b", "gh: x", "mcp__gh__x", 4);
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 1);
         }
         function test_a_label_at_the_emitters_40_character_cap_may_be_cut_short_and_is_not_offered() {
             var cut = "a".repeat(30) + ".example.com";                 // 42 characters

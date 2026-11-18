@@ -8,7 +8,8 @@ or ending with a hyphen; non-ASCII names are refused; punycode, xn--..., is plai
 a path, a port, a login, a leading '-', control characters) is refused. The check is made here, again,
 whatever the caller already did. The host goes to `xdg-open` as one list argument, never through a shell.
 
-Exit status: 0 handed to xdg-open, 2 bad arguments or a host that is not a plain hostname.
+Exit status: 0 handed to xdg-open, 1 xdg-open could not be started (not installed), 2 bad arguments
+or a host that is not a plain hostname.
 """
 import re
 import subprocess

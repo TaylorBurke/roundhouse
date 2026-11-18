@@ -36,14 +36,26 @@ function isHost(s) { return typeof s === "string" && s.length <= 253 && HOST_RE.
 // A label of 40 characters or more may have been cut short by the emitter (host_of caps at 40, with no
 // marker), and a cut label can look like a different valid host, so it is never offered.
 var HOST_CAP = 40;
-function hostLabel(e) { return e.tool === "WebFetch" && !!e.label && e.label.length < HOST_CAP && isHost(e.label); }
+var MCP_TOOL = /^mcp__(.+?)__(.+)/;
+
+// What a Network entry is: a host worth opening ({kind:"host", id: the host}), an MCP server
+// ({kind:"mcp", id: the server}), or nothing to list (null). A host is a WebFetch label that is a plain
+// hostname, under the emitter's cap, not an IP literal (the last label has a letter), and from a call
+// that worked (not failed, not refused).
+function classify(e) {
+    if (!e || e.station !== "network") return null;
+    var mcp = MCP_TOOL.exec(e.tool || "");
+    if (mcp) return { kind: "mcp", id: mcp[1] };
+    var l = e.label;
+    if (e.tool !== "WebFetch" || !l || l.length >= HOST_CAP || !isHost(l)) return null;
+    if (!/[A-Za-z]/.test(l.slice(l.lastIndexOf(".") + 1))) return null;
+    if (e.status === "err" || e.status === "blocked" || e.dotted === "block") return null;
+    return { kind: "host", id: l };
+}
 
 // Cheap (in-memory scan, no disk): is there an MCP server or a host in this session's Network entries?
 function networkCan(sess) {
-    if (!sess || !sess.entries) return false;
-    return sess.entries.some(function (e) {
-        return e.station === "network" && (/^mcp__(.+?)__/.test(e.tool || "") || hostLabel(e));
-    });
+    return !!sess && !!sess.entries && sess.entries.some(function (e) { return classify(e) !== null; });
 }
 
 // The distinct hosts (a WebFetch label that is a plain hostname) and MCP servers (from the tool name
@@ -53,15 +65,13 @@ function networkItems(sess, key, max) {
     if (!sess || !sess.entries) return [];
     var by = {}, out = [];
     sess.entries.forEach(function (e) {
-        if (e.station !== "network") return;
-        var id, it;
-        var mcp = /^mcp__(.+?)__/.exec(e.tool || "");
-        if (mcp) id = "m:" + mcp[1];
-        else if (hostLabel(e)) id = "h:" + e.label;
-        else return;
-        it = by[id];
+        var c = classify(e);
+        if (!c) return;
+        var id = c.kind + ":" + c.id;
+        var it = by[id];
         if (!it) {
-            it = by[id] = mcp ? { label: mcp[1], kind: "mcp", action: "mcp", count: 0, ts: 0 } : { label: e.label, kind: "host", action: "openhost", host: e.label, count: 0, ts: 0 };
+            it = by[id] = c.kind === "mcp" ? { label: c.id, kind: "mcp", action: "mcp", count: 0, ts: 0 }
+                                           : { label: c.id, kind: "host", action: "openhost", host: c.id, count: 0, ts: 0 };
             out.push(it);
         }
         it.count++;
