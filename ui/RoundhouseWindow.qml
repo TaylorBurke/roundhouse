@@ -238,9 +238,11 @@ FloatingWindow {
         if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "openhost") { openHost(d.host); closeList(); }
+        else if (d.action === "mcp") toast("MCP servers open nothing");
+        else if (d.action === "refused") toast("Not a plain hostname, not opened");
     }
     function openHost(host) {
-        if (!OpenList.isHost(host)) return;
+        if (!OpenList.isHost(host)) { toast("Not a plain hostname, not opened"); return; }
         Quickshell.execDetached(OpenList.openHostArgs(Quickshell.shellPath("../tools/openhost.py"), host));
     }
     function openPath(path) {

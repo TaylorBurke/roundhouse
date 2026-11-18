@@ -24,13 +24,27 @@ var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
     skills: { names: true },
-    network: { items: networkItems, list: true }   // hosts (open https://<host>) and MCP servers (history only), always listed
+    network: { can: networkCan, items: networkItems, list: true }   // hosts (open https://<host>) and MCP servers (history only), always listed
 };
 
 // A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
-// digits and hyphens, none starting or ending with a hyphen, ASCII only (an IDN arrives as punycode).
+// digits and hyphens, none starting or ending with a hyphen, ASCII only (a non-ASCII name is simply not
+// offered; nothing converts it to punycode). KEEP IDENTICAL to _HOST in tools/openhost.py (a test checks).
 var HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 function isHost(s) { return typeof s === "string" && s.length <= 253 && HOST_RE.test(s); }
+
+// A label of 40 characters or more may have been cut short by the emitter (host_of caps at 40, with no
+// marker), and a cut label can look like a different valid host, so it is never offered.
+var HOST_CAP = 40;
+function hostLabel(e) { return e.tool === "WebFetch" && !!e.label && e.label.length < HOST_CAP && isHost(e.label); }
+
+// Cheap (in-memory scan, no disk): is there an MCP server or a host in this session's Network entries?
+function networkCan(sess) {
+    if (!sess || !sess.entries) return false;
+    return sess.entries.some(function (e) {
+        return e.station === "network" && (/^mcp__(.+?)__/.test(e.tool || "") || hostLabel(e));
+    });
+}
 
 // The distinct hosts (a WebFetch label that is a plain hostname) and MCP servers (from the tool name
 // mcp__<server>__<tool>) behind the Network entries, with counts, newest first. Only a host carries
@@ -43,11 +57,11 @@ function networkItems(sess, key, max) {
         var id, it;
         var mcp = /^mcp__(.+?)__/.exec(e.tool || "");
         if (mcp) id = "m:" + mcp[1];
-        else if (e.tool === "WebFetch" && isHost(e.label)) id = "h:" + e.label;
+        else if (hostLabel(e)) id = "h:" + e.label;
         else return;
         it = by[id];
         if (!it) {
-            it = by[id] = mcp ? { label: mcp[1], kind: "mcp", count: 0, ts: 0 } : { label: e.label, kind: "host", host: e.label, count: 0, ts: 0 };
+            it = by[id] = mcp ? { label: mcp[1], kind: "mcp", action: "mcp", count: 0, ts: 0 } : { label: e.label, kind: "host", action: "openhost", host: e.label, count: 0, ts: 0 };
             out.push(it);
         }
         it.count++;
@@ -178,8 +192,10 @@ function accepts(seq, current, mode) {
 // What a click on row `index` means: look the name up (a list of names), open the file (a list of
 // files), or nothing (the "... and N more" row, or a row that is not there).
 function pickAction(mode, index, items, paths) {
-    if (mode === "items" && items && items[index] !== undefined && items[index].kind !== undefined)
-        return isHost(items[index].host) ? { action: "openhost", host: items[index].host } : { action: "none" };   // Network rows
+    // Network rows say what they are (`action` on the item); other stations' items have none.
+    if (mode === "items" && items && items[index] !== undefined && items[index].action === "mcp") return { action: "mcp" };
+    if (mode === "items" && items && items[index] !== undefined && items[index].action === "openhost")
+        return isHost(items[index].host) ? { action: "openhost", host: items[index].host } : { action: "refused" };
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
     if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
     return { action: "none" };

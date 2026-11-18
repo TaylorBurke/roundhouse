@@ -479,6 +479,16 @@ Item {
             net("b", "example.com", "WebFetch");
             compare(area("network").cursorShape, Qt.PointingHandCursor);
         }
+        function test_a_label_at_the_emitters_40_character_cap_may_be_cut_short_and_is_not_offered() {
+            var cut = "a".repeat(30) + ".example.com";                 // 42 characters
+            var edge = "a".repeat(27) + ".example.com";                // 39: fine
+            var at40 = "a".repeat(28) + ".example.com";                // 40: could be a cut label
+            net("a", cut, "WebFetch"); net("b", at40, "WebFetch");
+            verify(!OpenList.canOpen("network", sessNow(), Board));
+            net("c", edge, "WebFetch");
+            compare(OpenList.networkItems(sessNow(), "network", 12).map(function (i) { return i.label; }), [edge]);
+            verify(OpenList.canOpen("network", sessNow(), Board));
+        }
         function test_a_single_host_is_still_listed_not_opened_at_once() {
             net("a", "example.com", "WebFetch");
             var d = OpenList.onClick("network", sessNow(), Board);
@@ -491,12 +501,14 @@ Item {
             net("c", "gh: y", "mcp__gh__y", 5);
             var d = OpenList.onClick("network", sessNow(), Board);
             compare(d.rows.map(function (r) { return r.text + "|" + r.sub; }), ["gh|MCP \u00b7 \u00d72", "example.com|"]);
-            compare(OpenList.pickAction("items", 0, d.items, []), { action: "none" });            // the server
+            compare(OpenList.pickAction("items", 0, d.items, []), { action: "mcp" });             // the server: a toast, nothing opens
             compare(OpenList.pickAction("items", 1, d.items, []), { action: "openhost", host: "example.com" });
             compare(OpenList.pickAction("items", 2, d.items, []), { action: "none" });            // no such row
             // a host that is not plain is refused even if an item claims it
-            compare(OpenList.pickAction("items", 0, [{ kind: "host", host: "a b.com" }], []), { action: "none" });
-            compare(OpenList.pickAction("items", 0, [{ kind: "host", host: "-o.com" }], []), { action: "none" });
+            compare(OpenList.pickAction("items", 0, [{ action: "openhost", host: "a b.com" }], []), { action: "refused" });
+            compare(OpenList.pickAction("items", 0, [{ action: "openhost", host: "-o.com" }], []), { action: "refused" });
+            // another station's items never become a host open, whatever else they carry
+            compare(OpenList.pickAction("items", 0, [{ label: "x.com", host: "x.com", kind: "host" }], []).action, "lookup");
         }
         function test_isHost_refuses_hostile_input() {
             ["example.com", "a-b.example.org", "xn--bcher-kva.de", "1.2.3.4"].forEach(function (h) { verify(OpenList.isHost(h), h); });

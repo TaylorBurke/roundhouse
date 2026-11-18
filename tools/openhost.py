@@ -4,7 +4,7 @@
   openhost.py open HOST
 
 HOST must be a plain hostname (letters, digits, hyphens and dots; at least one dot; no label starting
-or ending with a hyphen; non-ASCII names only as punycode, xn--...). Anything else (spaces, a scheme,
+or ending with a hyphen; non-ASCII names are refused; punycode, xn--..., is plain ASCII and passes). Anything else (spaces, a scheme,
 a path, a port, a login, a leading '-', control characters) is refused. The check is made here, again,
 whatever the caller already did. The host goes to `xdg-open` as one list argument, never through a shell.
 
@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 
+# KEEP IDENTICAL to HOST_RE in ui/openlist.js (tests/test_openhost.py checks both).
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
 _HOST = re.compile(_LABEL + r"(?:\." + _LABEL + r")+", re.ASCII)
 

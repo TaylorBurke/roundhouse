@@ -43,6 +43,24 @@ class Validation(unittest.TestCase):
             self.assertFalse(openhost.valid_host(v))
 
 
+class SameRuleAsTheWindow(unittest.TestCase):
+    """HOST_RE in ui/openlist.js and _HOST here must stay identical: same text, same verdicts."""
+
+    def js_pattern(self):
+        import re
+        src = open(os.path.join(ROOT, "ui", "openlist.js")).read()
+        return re.search(r"var HOST_RE = /\^(.*)\$/;", src).group(1)
+
+    def test_the_two_patterns_are_the_same_text(self):
+        self.assertEqual(self.js_pattern(), openhost._HOST.pattern)
+
+    def test_both_give_the_same_verdict_on_the_samples(self):
+        import re
+        js = re.compile("^" + self.js_pattern() + "$", re.ASCII)
+        for h in GOOD + BAD:
+            self.assertEqual(js.fullmatch(h) is not None and len(h) <= 253, openhost.valid_host(h), repr(h))
+
+
 class Launch(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
