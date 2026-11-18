@@ -72,6 +72,48 @@ Item {
             compare(clicks.count, 1);
             compare(clicks.signalArguments[0][0], "memory");
         }
+        // ---- You: focus the terminal, offer drafts ----
+        function test_you_reacts_to_a_left_click_once_there_is_a_session() {
+            compare(area("you").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("you").x, station("you").y);
+            compare(clicks.count, 1);
+            compare(clicks.signalArguments[0][0], "you");
+            compare(OpenList.onClick("you", map.session, Board), { action: "you" });
+            parent.board = Board.newBoard();
+            parent.rev++;
+            compare(area("you").cursorShape, Qt.ArrowCursor);
+        }
+        function test_you_offers_drafts_when_idle_with_a_known_terminal() {
+            var y = OpenList.onYou({ address: "0x55aa11" }, map.session, { drafts: true, draftPrompts: null }, Board);
+            compare(y.address, "0x55aa11");
+            compare(y.toast, "");
+            compare(y.drafts[0], "continue");
+        }
+        function test_you_only_focuses_when_drafts_are_off_or_the_session_is_busy() {
+            var strip = { address: "0x55aa11" };
+            compare(OpenList.onYou(strip, map.session, { drafts: false, draftPrompts: null }, Board).drafts, []);
+            compare(OpenList.onYou(strip, map.session, { drafts: false, draftPrompts: null }, Board).address, "0x55aa11");
+            parent.fold({ ts: 3, ev: "tool_start", id: "x", station: "shell", label: "make", tool: "Bash" });
+            var busy = OpenList.onYou(strip, map.session, { drafts: true, draftPrompts: null }, Board);
+            compare(busy.drafts, []);
+            compare(busy.address, "0x55aa11");
+        }
+        function test_you_without_a_valid_terminal_address_types_nothing_and_says_so() {
+            var bad = [null, {}, { address: "" }, { address: "55aa" }, { address: "0x55aa11; id" }, { address: "0X55AA" }, { address: 5 }, { address: "0x55aa\n" }];
+            for (var i = 0; i < bad.length; i++) {
+                var y = OpenList.onYou(bad[i], map.session, { drafts: true, draftPrompts: null }, Board);
+                compare(y.address, "", JSON.stringify(bad[i]));
+                compare(y.drafts, []);
+                verify(y.toast !== "");
+            }
+        }
+        function test_a_replaced_prompt_list_is_offered_and_a_pick_means_type_that_text() {
+            var y = OpenList.onYou({ address: "0x1" }, map.session, { drafts: true, draftPrompts: ["Run the tests"] }, Board);
+            compare(y.drafts, ["continue", "Run the tests"]);
+            compare(OpenList.pickAction("drafts", 1, y.drafts, []), { action: "draft", text: "Run the tests" });
+            compare(OpenList.pickAction("drafts", 5, y.drafts, []), { action: "none" });
+            compare(OpenList.pickAction("items", 0, y.drafts, []).action, "lookup");   // other modes are unchanged
+        }
         function test_memory_needs_a_session_to_be_clickable() {
             parent.board = Board.newBoard();
             parent.rev++;
@@ -86,7 +128,8 @@ Item {
             read("s", "skills", "omarchy", "Skill");
             compare(lit("files"), true);
             compare(lit("skills"), true);
-            ["you", "shell", "network", "browser", "agents", "hooks"].forEach(function (k) { compare(lit(k), false, k); });
+            compare(lit("you"), true);                       // always: it focuses the terminal
+            ["shell", "network", "browser", "agents", "hooks"].forEach(function (k) { compare(lit(k), false, k); });
         }
         function test_the_backlight_is_a_quiet_ring_not_the_busy_glow() {
             read("a", "files", "src/app.ts");
@@ -152,7 +195,7 @@ Item {
         function test_other_stations_never_react_even_with_calls_behind_them() {
             read("sh", "shell", "build it", "Bash");
             read("n", "network", "web search", "WebSearch");               // Network reacts only to hosts and MCP servers
-            ["shell", "network", "you", "agents", "hooks"].forEach(function (k) {
+            ["shell", "network", "agents", "hooks"].forEach(function (k) {
                 compare(area(k).cursorShape, Qt.ArrowCursor, k);
                 mouseClick(map, station(k).x, station(k).y);
             });
@@ -229,7 +272,8 @@ Item {
             var spy = { calls: 0, openables: function () { this.calls++; return [{ label: "x", count: 1 }]; } };
             verify(OpenList.canOpen("memory", sess, spy));                    // always
             compare(spy.calls, 0);                                           // and no names were computed for it
-            ["you", "model", "shell", "network", "agents", "hooks", "hub", "nope"].forEach(function (k) {
+            verify(OpenList.canOpen("you", sess, spy));                      // always: it focuses the terminal
+            ["model", "shell", "network", "agents", "hooks", "hub", "nope"].forEach(function (k) {
                 verify(!OpenList.canOpen(k, sess, spy), k);                  // no entry: nothing to open, even with names
             });
             compare(spy.calls, 0);                                           // no names computed for a key with no entry

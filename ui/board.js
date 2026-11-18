@@ -610,3 +610,71 @@ function feedRows(sess, max) {
 }
 
 if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+// ---- draft prompts (a left click on You) ------------------------------------------------------
+// The drafts typed into the terminal by tools/draft.py (never submitted). Nothing from the log is ever
+// typed except a tool's NAME, and only if it is plain (see toolName); the tool checks the text again.
+var DRAFT_MAX = 300;                 // characters (code points), as tools/draft.py counts them
+var DRAFT_LIMIT = 8;
+var CANNED_DRAFTS = ["Summarize what you did so far", "What are the next steps?"];
+// The QML engine has no \p{..}, so the categories tools/draft.py refuses (control, format such as bidi
+// overrides and zero-width, private use, surrogates, line and paragraph separators) are listed here; the
+// tool is the authority and checks again. Emoji (surrogate pairs) pass; supplementary private use and tags do not.
+var DRAFT_BAD_PAIR = /[\udb80-\udbff][\udc00-\udfff]|\udb40[\udc01\udc20-\udc7f]/;
+var DRAFT_BAD = /[\u0000-\u001f\u007f-\u009f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ue000-\uf8ff\ufeff\ufff9-\ufffb\ud800-\udfff]/;
+var TOOL_NAME = /^[A-Za-z0-9_-]{1,40}$/;
+
+// The tool's name for "Why did the X call fail?", or "that call" when it is not a plain name.
+function toolName(e) {
+    return e && typeof e.tool === "string" && TOOL_NAME.test(e.tool) ? "the " + e.tool + " call" : "that call";
+}
+
+// A draft is typed only if it is a non-empty string of at most DRAFT_MAX characters (code points) with
+// none of the characters above.
+function validDraft(text) {
+    return typeof text === "string" && text.trim() !== "" && validChars(text);
+}
+function validChars(text) {
+    if (DRAFT_BAD_PAIR.test(text)) return false;
+    var cps = text.replace(/[\ud800-\udbff][\udc00-\udfff]/g, "x");     // one per code point
+    return cps.length <= DRAFT_MAX && !DRAFT_BAD.test(cps);
+}
+
+// config.json -> { enabled, prompts }: `drafts: false` turns drafts off; `draftPrompts` (an array of
+// strings) replaces the canned list, and keeps only valid ones; anything else leaves the default (null).
+function parseDrafts(cfg) {
+    var c = cfg && typeof cfg === "object" ? cfg : {};
+    return {
+        enabled: c.drafts !== false,
+        prompts: Array.isArray(c.draftPrompts) ? c.draftPrompts.filter(validDraft) : null
+    };
+}
+
+// A session is idle when nothing is running, no permission question is open (its last event) and it
+// has not ended: typing into the terminal then cannot answer a prompt or interrupt a run.
+function isIdle(sess) {
+    if (!sess || sess.ended || sess.entries.length === 0) return false;
+    if (sess.entries.some(function (e) { return e.status === "running"; })) return false;
+    if (Object.keys(sess.tasks).some(function (id) { return sess.tasks[id].status === "running"; })) return false;
+    if (Object.keys(sess.agents).some(function (id) { return sess.agents[id].running; })) return false;
+    var last = sess.entries[sess.entries.length - 1];
+    return !(last.station === "hooks" && (last.label || "").indexOf("asked permission") === 0);
+}
+
+// The drafts to offer, best first, at most DRAFT_LIMIT: from what happened since the last prompt (a
+// failed call, a refused one, else "continue"), then `canned` (null: the built-in list). [] unless the
+// session is idle and drafts are on.
+function drafts(sess, enabled, canned) {
+    if (enabled === false || !isIdle(sess)) return [];
+    var since = sess.promptTs || 0, failed = null, blocked = false;
+    sess.entries.forEach(function (e) {
+        if (e.ts < since || e.station === "you") return;
+        if (e.status === "err") failed = e;
+        else if (e.status === "blocked") blocked = true;
+    });
+    var out = [];
+    if (failed) out.push("Why did " + toolName(failed) + " fail?");
+    if (blocked) out.push("What are you waiting on?");
+    if (!failed && !blocked) out.push("continue");
+    (canned || CANNED_DRAFTS).forEach(function (t) { if (validDraft(t) && out.indexOf(t) < 0) out.push(t); });
+    return out.slice(0, DRAFT_LIMIT);
+}

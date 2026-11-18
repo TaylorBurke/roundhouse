@@ -64,7 +64,11 @@ FloatingWindow {
 
     Connections {
         target: win.tail
-        function onLive(ev, blocked) { if (ev.sid === win.shownSid) map.handle(ev, blocked); }
+        function onLive(ev, blocked) {
+            if (ev.sid !== win.shownSid) return;
+            map.handle(ev, blocked);
+            if (win.listMode === "drafts" && !Board.isIdle(win.session)) win.closeList();      // the session got busy: a stale draft list is not offered
+        }
     }
 
     // keyboard (all-sessions window): [ ] or the arrow keys step through sessions, space shows the
@@ -107,11 +111,10 @@ FloatingWindow {
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert
         // Dragging the band moves the window: the compositor takes over the move.
         onDragStarted: win.startSystemMove()
-        onActivate: {
-            var a = win.strip ? win.strip.address : "";
-            if (/^0x[0-9a-f]{1,16}$/.test(a))
-                Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
-        }
+        onActivate: win.focusTerminal(OpenList.terminalAddress(win.strip))
+    }
+    function focusTerminal(a) {
+        if (a) Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.focus({ window = 'address:" + a + "' })"]);
     }
 
     MapView {
@@ -189,6 +192,7 @@ FloatingWindow {
             toast("Nothing to open at " + Board.report(null, key).title + " yet");
             return;
         }
+        if (d.action === "you") { youClicked(anchor); return; }
         clearToast();
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
@@ -202,6 +206,49 @@ FloatingWindow {
         else if (d.action === "memory") lookupMemory();       // whether or not any file was touched
         else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
+    }
+    // A left click on You: with drafts to offer (idle session, drafts on) it lists them and leaves the
+    // focus alone (the list is in this window); otherwise it focuses the terminal. A pick runs
+    // tools/draft.py, which focuses the terminal, checks it is the active window and types the text
+    // without pressing Enter (the owner reviews and submits). It says why on a refusal.
+    function youClicked(anchor) {
+        var y = OpenList.onYou(strip, session, settings, Board);
+        closeList();
+        if (!y.address) { toast(y.toast); return; }
+        clearToast();
+        if (y.drafts.length === 0) { focusTerminal(y.address); return; }
+        listKey = "you"; listAnchor = anchor; listTitle = "Draft";
+        lookupSeq++; listItems = y.drafts; listPaths = [];
+        listRowsView = y.drafts.map(function (t) { return { text: t, sub: "" }; });
+        listMode = "drafts"; noteTimer.stop();
+    }
+    property bool drafting: false           // draft.py is running: another pick is ignored
+    function typeDraft(text) {
+        var a = OpenList.terminalAddress(strip);
+        if (drafting || !a) return;
+        if (!Board.isIdle(session)) { toast("Claude is busy; not typing"); return; }     // checked again at the pick
+        drafting = true;
+        var job = draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
+        if (!job) { drafting = false; toast("Could not start the draft tool"); }
+    }
+    // `drafting` is cleared only when the process has exited, so two draft.py runs never overlap. After
+    // 20 s (longer than the tool's own limits) the process is told to stop; if it cannot be stopped,
+    // `drafting` stays true and picks stay ignored until this window is closed.
+    Component {
+        id: draftC
+        Item {
+            id: job
+            property var command: []
+            Process {
+                id: proc
+                command: job.command
+                running: true
+                onExited: { win.drafting = false; cleanup.start(); }
+                stderr: StdioCollector { onStreamFinished: { if (text.trim() !== "") win.toast(text.trim()); } }
+            }
+            Timer { interval: 20000; running: true; onTriggered: proc.running = false }
+            Timer { id: cleanup; interval: 1000; onTriggered: job.destroy() }      // after the stderr text has arrived
+        }
     }
     // A right click on any station: its recent calls, newest first (names only, from the log), or a
     // toast when there are none. The rows are a snapshot of the moment of the click.
@@ -339,6 +386,7 @@ FloatingWindow {
         if (d.action === "focus") { focusBrowser(d.address); closeList(); }
         else if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
+        else if (d.action === "draft") { closeList(); typeDraft(d.text); }
         else if (d.action === "openhost") { openHost(d.host); closeList(); }
         else if (d.action === "mcp") { closeList(); toast("MCP servers open nothing"); }
         else if (d.action === "refused") { closeList(); toast("Not a plain hostname, not opened"); }
