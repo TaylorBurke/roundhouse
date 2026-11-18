@@ -2,6 +2,7 @@ import QtQuick
 import "icons.js" as Icons
 import "board.js" as Board
 import "openlist.js" as Clicks
+import "contextpanel.js" as CtxPanel
 
 // The resting map: a hub in the middle, ten stations on an ellipse (You at the top, then
 // clockwise), a spoke to each, dashed contour rings behind. Everything is placed from the
@@ -593,6 +594,8 @@ Item {
     // A right click on any station asks for its recent calls (Board.history).
     signal nodeClicked(string key, point anchor)
     signal nodeRightClicked(string key, point anchor)
+    signal hubClicked()                   // the hub is not a station: its own signal, its own cheap check
+    readonly property bool canClickHub: revision >= 0 && CtxPanel.canClickHub(session)
     property bool listOpen: false         // the window shows a list beside a station: no tooltip then
     function canOpen(key) {
         if (revision < 0 || !session) return false;
@@ -649,7 +652,11 @@ Item {
     }
     MouseArea {
         x: root.cx - root.hubR; y: root.cy - root.hubR; width: root.hubR * 2; height: root.hubR * 2
-        hoverEnabled: true; acceptedButtons: Qt.NoButton
+        objectName: "hub"
+        hoverEnabled: true
+        acceptedButtons: root.canClickHub ? Qt.LeftButton : Qt.NoButton
+        cursorShape: root.canClickHub ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: root.hubClicked()
         onEntered: root.hoverKey = "hub"
         onExited: if (root.hoverKey === "hub") root.hoverKey = ""
     }

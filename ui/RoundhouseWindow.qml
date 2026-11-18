@@ -5,6 +5,7 @@ import "board.js" as Board
 import "follow.js" as Follow
 import "openlist.js" as OpenList
 import "turn.js" as Turn
+import "contextpanel.js" as CtxPanel
 
 // One roundhouse window. The all-sessions one (sid "*") has the switcher and follows whichever
 // session is active; any other is fixed to its session, so a terminal and its map belong together.
@@ -73,7 +74,7 @@ FloatingWindow {
         anchors.fill: parent
         focus: true
         Keys.onPressed: event => {
-            if (event.key === Qt.Key_Escape && win.listMode !== "") { win.closeList(); event.accepted = true; return; }
+            if (event.key === Qt.Key_Escape && (win.listMode !== "" || win.ctxOpen)) { win.closeList(); event.accepted = true; return; }
             if (!win.all) return;
             var k = event.key, t = event.text;
             if (k === Qt.Key_Left || t === "[") win.cycle(-1);
@@ -123,9 +124,10 @@ FloatingWindow {
         bg: theme.bg; disc: theme.disc; discEdge: theme.discEdge; line: theme.line; ring: theme.ring
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
         accent: theme.accent; alert: theme.alert; memory: theme.memory
-        listOpen: win.listMode !== ""
+        listOpen: win.listMode !== "" || win.ctxOpen
         onNodeClicked: (key, anchor) => win.nodeClicked(key, anchor)
         onNodeRightClicked: (key, anchor) => win.nodeRightClicked(key, anchor)
+        onHubClicked: win.hubClicked()
     }
 
     Item {
@@ -172,10 +174,10 @@ FloatingWindow {
     // one: its answer, whenever it arrives, is ignored (so a cancelled click never opens a file, and
     // two clicks in a row never mix their results).
     property int lookupSeq: 0
-    function closeList() { lookupSeq++; listMode = ""; listWins = []; noteTimer.stop(); turnView = ({ steps: [], note: "", summary: "" }); }
+    function closeList() { lookupSeq++; listMode = ""; listWins = []; ctxOpen = false; noteTimer.stop(); turnView = ({ steps: [], note: "", summary: "" }); }
     onShownSidChanged: { closeList(); clearToast(); }
     onListModeChanged: {
-        if (listMode !== "") clearToast();      // a list and a toast never show together
+        if (listMode !== "") { clearToast(); ctxOpen = false; }      // a list and a toast never show together
         if (listMode !== "turn") turnView = ({ steps: [], note: "", summary: "" });   // reasoning never outlives its panel
     }
 
@@ -215,6 +217,36 @@ FloatingWindow {
         listTitle = Board.report(null, key).title + " \u00b7 recent";
         listRowsView = OpenList.historyRows(calls, now());
         listMode = "history"; noteTimer.stop();
+    }
+    // A click on the hub: the context panel. The transcript is read now (tools/transcript.py context),
+    // by a short-lived process like the file lookups; nothing found is a toast, never an empty panel.
+    property bool ctxOpen: false
+    property var ctxInfo: ({ found: false })
+    function hubClicked() {
+        var seq = ++lookupSeq;
+        listMode = ""; ctxOpen = false; noteTimer.stop(); clearToast();
+        ctxC.createObject(win.contentItem, { seq: seq, command: CtxPanel.args(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
+    }
+    function ctxAnswer(seq, text) {
+        if (seq !== lookupSeq || listMode !== "") return;       // closed, or another click took over
+        var d = CtxPanel.parse(text);
+        if (!d.found) { ctxOpen = false; toast("No transcript found for this session"); return; }
+        clearToast(); ctxInfo = d; ctxOpen = true;
+    }
+    Component {
+        id: ctxC
+        Item {
+            id: ctxJob
+            property int seq: 0
+            property var command: []
+            Process {
+                id: ctxProc
+                command: ctxJob.command
+                running: true
+                stdout: StdioCollector { onStreamFinished: { win.ctxAnswer(ctxJob.seq, text); ctxJob.destroy(); } }
+            }
+            Timer { interval: 8000; running: true; onTriggered: ctxProc.running = false }
+        }
     }
     function lookup(item) {
         var seq = ++lookupSeq;
@@ -396,7 +428,7 @@ FloatingWindow {
     MouseArea {                              // a click anywhere else closes the list
         anchors.fill: parent
         z: 90
-        visible: win.listMode !== ""
+        visible: win.listMode !== "" || win.ctxOpen
         acceptedButtons: Qt.LeftButton | Qt.RightButton
         onClicked: mouse => {
             // a right click on a station opens that station's recent calls, as it does with no list open
@@ -433,6 +465,19 @@ FloatingWindow {
         x: (parent.width - width) / 2
         y: Math.max(8, (parent.height - height) / 2)
         onOpenRaw: win.openTranscript()
+    }
+
+    ContextPanel {
+        id: ctxPanel
+        objectName: "contextPanel"
+        z: 100
+        visible: win.ctxOpen
+        info: win.ctxInfo
+        reading: map.context ? map.context.tokens : 0
+        windowSize: map.context ? map.context.size : 0
+        bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; alert: theme.alert; edge: theme.discEdge
+        x: Math.max(8, (parent.width - width) / 2)
+        y: Math.max(4, Math.min(parent.height - height - 4, map.y + map.cy + map.hubR + 18))
     }
 
     Feed {
