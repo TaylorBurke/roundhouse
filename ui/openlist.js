@@ -27,6 +27,7 @@ var HANDLERS = {
     hooks: { always: true, action: "hooks" },       // the configured hooks (read at click time), whether or not one fired
     skills: { names: true },
     model: { can: modelCan, action: "turn" },       // the current turn from the transcript, read at the click (ui/turn.js)
+    agents: { can: agentsCan, items: agentsItems, list: true },   // subagents (running first); a pick shows its calls and can open its transcript
     network: { can: networkCan, items: networkItems, list: true },   // hosts (open https://<host>) and MCP servers (history only), always listed
     // a browser window to go to: there is one only if the session used the browser (in memory); which
     // windows exist is asked at the click (tools/browserwin.py)
@@ -124,12 +125,59 @@ function taskItems(sess, key, max) {
     return list.slice(0, max);
 }
 
+// Cheap: has the session had any subagent (they stay listed, running or finished)?
+function agentsCan(sess) { return !!sess && !!sess.agents && Object.keys(sess.agents).length > 0; }
+
+// One row per subagent for the list: its type, and "running 12s" / "done 3m". At click time only.
+function agentsItems(sess, key, max, board, now) {
+    if (typeof now !== "number") now = Date.now() / 1000;      // the window passes its own clock
+    return board.agentList(sess, now).slice(0, max || 12).map(function (a) {
+        var d = durationLabel(a.ms);
+        return { label: a.type || "agent", kind: "agent", action: "agent", id: a.id, running: a.running, ms: a.ms,
+                 sub: (a.running ? "running" : "done") + (d !== "" ? " \u00b7 " + d : "") };
+    });
+}
+
+// What opens when one subagent is picked: a title, a summary line, and rows: an "Open transcript" action
+// first (flagged `action: true`, the only row that reacts), then its calls newest first, capped at `max`.
+function agentView(item, calls, now, max) {
+    var rows = [{ text: "Open transcript", sub: "", action: true }].concat(historyRows((calls || []).slice(0, max || 8), now));
+    return { title: "Agents \u00b7 " + (item.label || "agent"),
+             note: (item.sub || "") + (calls && calls.length ? "" : " \u00b7 no calls in the last 80 events"), rows: rows };
+}
+
+// The command that finds a subagent's transcript: transcript.py path SID AGENT, or null if either is not
+// a plain id (the tool checks again). The session id is its 8-character prefix.
+function transcriptArgs(script, sid, agent) {
+    var s = typeof sid === "string" ? sid.slice(0, 8) : "";
+    if (!/^[A-Za-z0-9_-]{8}$/.test(s) || typeof agent !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(agent)) return null;
+    return ["python3", "-I", script, "path", s, agent];
+}
+
+// The tool's answer as the file to open, else "". tools/transcript.py already guarantees a regular file
+// below ~/.claude/projects (as a real path, so a symlinked home prints differently from $HOME); here only
+// the shape is checked: absolute, ends in .jsonl, no empty or ".." component, no control characters.
+function transcriptPath(text) {
+    try {
+        var o = JSON.parse(text);
+        var p = o && o.found === true && typeof o.path === "string" ? o.path : "";
+        if (!p || p.charAt(0) !== "/" || !/\.jsonl$/.test(p) || /[\u0000-\u001f\u007f]/.test(p)) return "";
+        var parts = p.slice(1).split("/");
+        if (parts.some(function (c) { return c === "" || c === ".." || c === "."; })) return "";
+        return p;
+    } catch (e) { }
+    return "";
+}
+
+// The command that opens one file: openable.py open PATH (it checks the path again; exit 2 = refused).
+function openFileArgs(script, path) { return ["python3", "-I", script, "open", path]; }
+
 // The items behind a left click at `key`, at most `max`: [] for a station with no entry or an entry
 // that is always open. `board` is board.js (this file cannot import it).
-function itemsOf(key, sess, board, max) {
+function itemsOf(key, sess, board, max, now) {
     var h = HANDLERS[key];
     if (!h || h.always) return [];
-    if (h.items) return h.items(sess, key, max, board) || [];
+    if (h.items) return h.items(sess, key, max, board, now) || [];
     return h.names ? board.openables(sess, key, max) : [];
 }
 
@@ -144,11 +192,11 @@ function canOpen(key, sess, board) {
 }
 
 // What a left click at `key` means: its entry's own action, else what onNode makes of its items.
-function onClick(key, sess, board) {
+function onClick(key, sess, board, now) {
     var h = HANDLERS[key];
     if (!h) return { action: "none" };
     if (h.action) return { action: typeof h.action === "function" ? h.action(sess) : h.action };
-    return onNode(itemsOf(key, sess, board, 12), !!h.list);
+    return onNode(itemsOf(key, sess, board, 12, now), !!h.list);
 }
 
 // A strip's terminal address if it is a window address, else "".
@@ -263,6 +311,8 @@ function pickAction(mode, index, items, paths, wins) {
     if (mode === "windows" && wins && wins[index] !== undefined) return { action: "focus", address: wins[index].address };
     // Network rows say what they are (`action` on the item); other stations' items have none.
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "mcp") return { action: "mcp" };
+    if (mode === "items" && items && items[index] !== undefined && items[index].action === "agent") return { action: "agent", item: items[index] };
+    if (mode === "agent") return items && items[index] && items[index].action === true ? { action: "transcript" } : { action: "none" };
     if (mode === "items" && items && items[index] !== undefined && items[index].action === "openhost")
         return isHost(items[index].host) ? { action: "openhost", host: items[index].host } : { action: "refused" };
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };

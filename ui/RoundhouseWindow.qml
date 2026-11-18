@@ -162,7 +162,7 @@ FloatingWindow {
     // files lists those. The log keeps no full paths, so the lookup (tools/openable.py) happens now,
     // under the session's folder; names only are read, and opening only ever hands one existing
     // file in the home folder to the editor.
-    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message; "history" recent calls; "windows" browser windows to pick from
+    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message; "history" recent calls; "windows" browser windows to pick from; "agent" one subagent (its calls, and its transcript)
     property string listKey: ""
     property var listItems: []              // the names (mode "items")
     property var listPaths: []              // the files found (mode "paths")
@@ -186,7 +186,7 @@ FloatingWindow {
     }
 
     function nodeClicked(key, anchor) {
-        var d = OpenList.onClick(key, session, Board);
+        var d = OpenList.onClick(key, session, Board, now());
         if (d.action === "none") {       // openable by the cheap check, but the click-time lookup found nothing
             closeList();
             toast("Nothing to open at " + Board.report(null, key).title + " yet");
@@ -404,8 +404,39 @@ FloatingWindow {
         else if (d.action === "draft") { closeList(); typeDraft(d.text); }
         else if (d.action === "hookopen") { openHookFile(d.path); closeList(); }
         else if (d.action === "openhost") { openHost(d.host); closeList(); }
+        else if (d.action === "agent") showAgent(d.item);
+        else if (d.action === "transcript") openTranscript();
         else if (d.action === "mcp") { closeList(); toast("MCP servers open nothing"); }
         else if (d.action === "refused") { closeList(); toast("Not a plain hostname, not opened"); }
+    }
+    // A picked subagent: its status and the calls it made (from the log), with an action to open its
+    // transcript. The transcript's path is only looked up when that row is clicked.
+    property var pickedAgent: null
+    function showAgent(item) {
+        var v = OpenList.agentView(item, Board.agentCalls(session, item.id, 8), now(), 8);
+        pickedAgent = item; lookupSeq++; listItems = v.rows; listPaths = []; transcriptBusy = false;   // a new pick retires any lookup (its seq is stale)
+        listTitle = v.title; listNote = v.note; listRowsView = v.rows; listMode = "agent"; noteTimer.stop();
+    }
+    property bool transcriptBusy: false     // a transcript lookup is running: a second click is ignored
+    function openTranscript() {
+        if (transcriptBusy) return;
+        var args = pickedAgent ? OpenList.transcriptArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid, pickedAgent.id) : null;
+        if (!args) { closeList(); toast("Transcript not found"); return; }
+        var seq = ++lookupSeq;
+        transcriptBusy = true;
+        finderC.createObject(win.contentItem, { seq: seq, what: "transcript", command: args });
+    }
+    function transcriptFound(seq, text) {
+        if (seq !== lookupSeq || listMode !== "agent") return;       // closed or replaced meanwhile
+        if (text.trim() === "") return;                               // no answer: onExited decides (toast, cleanup)
+        var p = OpenList.transcriptPath(text);
+        closeList();
+        if (!p) { toast("Transcript not found"); return; }
+        // run as a job so a failed open (exit code not 0) says so instead of vanishing
+        finderC.createObject(win.contentItem, { what: "openfile", command: OpenList.openFileArgs(Quickshell.shellPath("../tools/openable.py"), p) });
+    }
+    function transcriptFailed(seq) {
+        if (seq === lookupSeq && listMode === "agent") { closeList(); toast("Could not look up the transcript"); }
     }
     function openHost(host) {
         if (!OpenList.isHost(host)) { toast("Not a plain hostname, not opened"); return; }
@@ -430,17 +461,22 @@ FloatingWindow {
                 command: job.command
                 running: true
                 stdout: StdioCollector { onStreamFinished: {
-                    if (job.what === "focus") return;               // judged by the exit code
+                    if (job.what === "focus" || job.what === "openfile") return;               // judged by the exit code
+                    if (job.what === "transcript") { win.transcriptFound(job.seq, text); job.destroy(); return; }
                     if (job.what === "windows") win.foundWindows(job.seq, text); else win.found(job.seq, text);
                     job.destroy();
                 } }
                 onExited: (code, status) => {
-                    if (job.what !== "focus") return;
-                    if (code !== 0) win.toast("Could not focus the window");
+                    if (job.what === "transcript") {                // killed (timeout), crashed or failed: say so, free the click
+                        if (code !== 0) win.transcriptFailed(job.seq);
+                        job.destroy(); return;
+                    }
+                    if (job.what !== "focus" && job.what !== "openfile") return;
+                    if (code !== 0) win.toast(job.what === "openfile" ? "Could not open the transcript" : "Could not focus the window");
                     job.destroy();
                 }
             }
-            Component.onDestruction: if (job.what === "windows") win.browserBusy = false
+            Component.onDestruction: { if (job.what === "windows") win.browserBusy = false; if (job.what === "transcript") win.transcriptBusy = false; }
             Timer { interval: 8000; running: true; onTriggered: proc.running = false }
         }
     }
@@ -515,8 +551,9 @@ FloatingWindow {
         visible: win.listMode !== "" && win.listMode !== "turn"
         title: win.listTitle
         rows: win.listRowsView
-        message: win.listMode === "note" ? win.listNote : ""
+        message: win.listMode === "note" || win.listMode === "agent" ? win.listNote : ""
         interactive: win.listMode !== "history"
+        actionOnly: win.listMode === "agent"
         elideMode: win.listMode === "paths" ? Text.ElideLeft : Text.ElideRight
         bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; edge: theme.discEdge
         readonly property point at: Qt.point(map.x + win.listAnchor.x, map.y + win.listAnchor.y)

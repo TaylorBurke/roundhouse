@@ -383,14 +383,15 @@ Item {
             try {
                 OpenList.HANDLERS.scratch = { can: true, items: function () { calls++; return [{ label: "h", count: 1 }]; } };
                 var realShell = OpenList.HANDLERS.shell;
+                var realBrowser = OpenList.HANDLERS.browser;
                 OpenList.HANDLERS.shell = { can: function (s) { return !!s; }, items: function () { calls++; return []; } };
-                OpenList.HANDLERS.agents = { items: function () { calls++; return []; } };
-                for (var i = 0; i < 5; i++) ["scratch", "shell", "agents"].forEach(function (k) { OpenList.canOpen(k, {}, board); });
+                OpenList.HANDLERS.browser = { items: function () { calls++; return []; } };
+                for (var i = 0; i < 5; i++) ["scratch", "shell", "browser"].forEach(function (k) { OpenList.canOpen(k, {}, board); });
                 compare(calls, 0);
                 verify(OpenList.canOpen("scratch", null, board));
                 verify(OpenList.canOpen("shell", {}, board));
                 verify(!OpenList.canOpen("shell", null, board));            // a cheap check can say no
-                verify(OpenList.canOpen("agents", null, board));
+                verify(OpenList.canOpen("browser", null, board));
                 compare(OpenList.onClick("scratch", null, board).action, "resolve");
                 compare(calls, 1);                                          // the provider runs at click time
                 compare(OpenList.onClick("shell", {}, board).action, "none");
@@ -398,7 +399,7 @@ Item {
                 OpenList.HANDLERS.scratch = { can: false, items: function () { calls++; return []; } };
                 verify(!OpenList.canOpen("scratch", null, board));
             } finally {
-                delete OpenList.HANDLERS.scratch; OpenList.HANDLERS.shell = realShell; delete OpenList.HANDLERS.agents;
+                delete OpenList.HANDLERS.scratch; OpenList.HANDLERS.shell = realShell; OpenList.HANDLERS.browser = realBrowser;
             }
         }
         function test_a_left_click_goes_through_the_table_as_it_did() {
@@ -471,6 +472,20 @@ Item {
             mouseClick(findChild(list, "row0"));
             compare(picks.count, 1);
             list.rows = [{ text: "src/app.ts", sub: "\u00d73" }, { text: "README.md", sub: "" }];
+        }
+        function test_only_rows_flagged_as_actions_react_when_actionOnly_is_set() {
+            list.message = "";
+            list.rows = [{ text: "Open transcript", sub: "", action: true }, { text: "ls", sub: "ok" }];
+            tryVerify(function () { return findChild(list, "row1") !== null; }, 3000);
+            wait(60);
+            list.actionOnly = true;
+            picks.clear();
+            mouseClick(findChild(list, "row1"));
+            compare(picks.count, 0);                          // a call only shows
+            mouseClick(findChild(list, "row0"));
+            compare(picks.count, 1);
+            list.actionOnly = false;
+            list.rows = [{ text: "src/app.ts", sub: "×3" }, { text: "README.md", sub: "" }];
         }
         function test_a_message_alone_is_a_note_without_rows() {
             list.rows = []; list.message = "Looking for a/b.md";
@@ -793,6 +808,89 @@ Item {
         function test_the_browser_commands_are_lists_without_a_shell() {
             compare(OpenList.browserListArgs("/t/browserwin.py"), ["python3", "-I", "/t/browserwin.py", "list"]);
             compare(OpenList.browserFocusArgs("/t/browserwin.py", "0x1"), ["python3", "-I", "/t/browserwin.py", "focus", "0x1"]);
+        }
+
+        // ---- Agents: the subagents, running first ----
+        function agentStart(id, type, ts) { parent.fold({ ts: ts, ev: "agent_start", type: type, agent: id }); }
+        function agentEnd(id, type, ts) { parent.fold({ ts: ts, ev: "agent_end", type: type, agent: id }); }
+        function test_agents_is_clickable_once_a_subagent_has_started_and_stays_so_after_it_ends() {
+            compare(area("agents").cursorShape, Qt.ArrowCursor);
+            verify(!OpenList.canOpen("agents", sessNow(), Board));
+            agentStart("a1", "Explore", 3);
+            compare(area("agents").cursorShape, Qt.PointingHandCursor);
+            agentEnd("a1", "Explore", 4);
+            compare(area("agents").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("agents").x, station("agents").y);
+            compare(clicks.count, 1);
+            compare(clicks.signalArguments[0][0], "agents");
+        }
+        function test_the_agents_list_has_running_first_with_type_status_and_duration() {
+            var t = 1000;
+            agentStart("old", "Explore", t - 100);
+            agentEnd("old", "Explore", t - 40);
+            agentStart("now", "Plan", t - 12);
+            var d = OpenList.onClick("agents", sessNow(), Board, t);
+            compare(d.action, "list");                                  // even a single agent is listed
+            compare(d.rows.map(function (r) { return r.text; }), ["Plan", "Explore"]);
+            compare(d.rows[0].sub, "running \u00b7 12s");
+            compare(d.rows[1].sub, "done \u00b7 1m");
+        }
+        function test_the_agents_list_is_capped() {
+            for (var i = 0; i < 20; i++) agentStart("g" + i, "T" + i, 3 + i);
+            compare(OpenList.onClick("agents", sessNow(), Board).rows.length, 12);
+        }
+        function test_picking_an_agent_shows_its_calls_with_the_transcript_action_first() {
+            var t = 1000;
+            agentStart("a1", "Explore", t - 10);
+            parent.fold({ ts: t - 8, ev: "tool_end", id: "c1", station: "files", label: "x.md", tool: "Read", status: "ok", ms: 4, agent: "a1" });
+            parent.fold({ ts: t - 6, ev: "tool_end", id: "c2", station: "shell", label: "ls", tool: "Bash", status: "ok", ms: 9, agent: "a1" });
+            parent.fold({ ts: t - 5, ev: "tool_end", id: "c3", station: "shell", label: "other", tool: "Bash", status: "ok", ms: 1 });
+            var d = OpenList.onClick("agents", sessNow(), Board, t);
+            var pick = OpenList.pickAction("items", 0, d.items, []);
+            compare(pick.action, "agent");
+            var v = OpenList.agentView(pick.item, Board.agentCalls(sessNow(), pick.item.id, 8), t, 8);
+            compare(v.title, "Agents \u00b7 Explore");
+            compare(v.note, "running \u00b7 10s");
+            compare(v.rows.map(function (r) { return r.text; }), ["Open transcript", "ls", "x.md"]);
+            compare(v.rows[0].action, true);
+            compare(v.rows[1].action, undefined);
+            compare(OpenList.pickAction("agent", 0, v.rows, []), { action: "transcript" });
+            compare(OpenList.pickAction("agent", 1, v.rows, []), { action: "none" });      // the calls only show
+            compare(OpenList.pickAction("agent", 0, [], []), { action: "none" });          // no flag, no action
+        }
+        function test_an_agent_with_no_calls_says_so_and_the_calls_are_capped() {
+            agentStart("a1", "Plan", 3);
+            var item = OpenList.onClick("agents", sessNow(), Board).items[0];
+            verify(OpenList.agentView(item, [], 10, 8).note.indexOf("no calls in the last 80 events") > 0);
+            var calls = [];
+            for (var i = 0; i < 30; i++) calls.push({ label: "c" + i, status: "ok", ms: 1, ts: 5 });
+            compare(OpenList.agentView(item, calls, 10, 8).rows.length, 9);
+        }
+        function test_the_transcript_command_is_one_list_and_refuses_odd_ids() {
+            compare(OpenList.transcriptArgs("/s/transcript.py", "aaaaaaaa-1234", "ab12"), ["python3", "-I", "/s/transcript.py", "path", "aaaaaaaa", "ab12"]);
+            compare(OpenList.transcriptArgs("/s", "aaaaaaaa", "a b"), null);
+            compare(OpenList.transcriptArgs("/s", "aaaaaaaa", "../x"), null);
+            compare(OpenList.transcriptArgs("/s", "short", "ab"), null);
+            compare(OpenList.transcriptArgs("/s", "aaaaaaaa", ""), null);
+        }
+        function test_the_open_command_is_a_list_with_the_path_as_one_argument() {
+            compare(OpenList.openFileArgs("/s/openable.py", "/h/a b.jsonl"), ["python3", "-I", "/s/openable.py", "open", "/h/a b.jsonl"]);
+        }
+        function test_a_transcript_path_is_checked_by_shape_not_by_the_home_prefix() {
+            function tp(path) { return OpenList.transcriptPath(JSON.stringify({ found: true, path: path })); }
+            var ok = "/home/ww/.claude/projects/p/s/subagents/agent-ab.jsonl";
+            compare(tp(ok), ok);
+            compare(tp("/mnt/data/ww/.claude/projects/p/s/subagents/agent-ab.jsonl"), "/mnt/data/ww/.claude/projects/p/s/subagents/agent-ab.jsonl");   // a symlinked home prints as its real path
+            compare(tp("/home/ww/.claude/projects/p/agent-a..b.jsonl"), "/home/ww/.claude/projects/p/agent-a..b.jsonl");                               // dots inside a name are fine
+            compare(tp("/home/ww/.claude/projects/../x.jsonl"), "");
+            compare(tp("/home/ww/.claude/projects//x.jsonl"), "");
+            compare(tp("/home/ww/./x.jsonl"), "");
+            compare(tp("/home/ww/.claude/projects/p/x.md"), "");
+            compare(tp("relative/x.jsonl"), "");
+            compare(tp("/home/ww/x\ny.jsonl"), "");
+            compare(OpenList.transcriptPath(JSON.stringify({ found: false, path: ok })), "");
+            compare(OpenList.transcriptPath("not json"), "");
+            compare(OpenList.transcriptPath(""), "");
         }
     }
 }

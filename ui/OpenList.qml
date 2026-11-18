@@ -15,6 +15,7 @@ Rectangle {
     property color accent: "#e0a458"
     property color edge: "#2a3140"
     property bool interactive: true               // false: rows only show (recent calls), they do not react
+    property bool actionOnly: false               // with interactive: only rows flagged `action: true` react
     property int elideMode: Text.ElideRight        // how a long row is cut: a path reads best cut in the middle
 
     signal picked(int index)
@@ -50,15 +51,16 @@ Rectangle {
                 id: row
                 required property int index
                 required property var modelData
+                readonly property bool live: root.interactive && (!root.actionOnly || modelData.action === true)
                 objectName: "row" + index
                 width: col.width; height: root.rowHeight; radius: 4
-                color: hit.containsMouse && root.interactive ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.18) : "transparent"
+                color: hit.containsMouse && row.live ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.18) : "transparent"
                 Text {
                     anchors { left: parent.left; leftMargin: 6; right: sub.left; rightMargin: 6; verticalCenter: parent.verticalCenter }
                     text: row.modelData.text
                     textFormat: Text.PlainText
                     elide: root.elideMode
-                    color: hit.containsMouse && root.interactive ? root.inkStrong : root.ink
+                    color: hit.containsMouse && row.live ? root.inkStrong : root.ink
                     font.family: "monospace"; font.pixelSize: 11
                 }
                 Text {
@@ -70,7 +72,7 @@ Rectangle {
                 MouseArea {
                     id: hit
                     anchors.fill: parent
-                    enabled: root.interactive
+                    enabled: row.live
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.picked(row.index)

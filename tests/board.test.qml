@@ -350,6 +350,29 @@ QtObject {
         Board.fold(b, ev({ ts: 5, ev: "agent_end", type: "Explore", agent: "a1" }));
         check("its end ends the task", [Board.runningAgents(sess(b)), sess(b).stations.agents.running], [0, 0]);
 
+        // the agent list: times are tracked, running first, finished stay, durations from the log's clock
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 10, ev: "agent_start", type: "Explore", agent: "a1" }));
+        check("start time kept, no end yet", [sess(b).agents.a1.since, sess(b).agents.a1.until], [10, null]);
+        Board.fold(b, ev({ ts: 12, ev: "agent_start", type: "Plan", agent: "a2" }));
+        Board.fold(b, ev({ ts: 13, ev: "tool_end", id: "c1", station: "files", label: "x.md", tool: "Read", status: "ok", ms: 4, agent: "a1" }));
+        Board.fold(b, ev({ ts: 14, ev: "tool_end", id: "c2", station: "shell", label: "ls", tool: "Bash", status: "ok", ms: 9, agent: "a1" }));
+        Board.fold(b, ev({ ts: 14.5, ev: "tool_end", id: "c3", station: "shell", label: "main loop", tool: "Bash", status: "ok", ms: 1 }));
+        Board.fold(b, ev({ ts: 20, ev: "agent_end", type: "Explore", agent: "a1" }));
+        check("end time kept", sess(b).agents.a1.until, 20);
+        var al = Board.agentList(sess(b), 30);
+        check("running first, then finished", al.map(function (a) { return a.type + ":" + a.running; }), ["Plan:true", "Explore:false"]);
+        check("running duration is so far, finished is start to end", al.map(function (a) { return a.ms; }), [18000, 10000]);
+        Board.fold(b, ev({ ts: 21, ev: "agent_start", type: "Review", agent: "a3" }));
+        Board.fold(b, ev({ ts: 22, ev: "agent_end", type: "Review", agent: "a3" }));
+        check("finished, newest end first", Board.agentList(sess(b), 30).map(function (a) { return a.id; }), ["a2", "a3", "a1"]);
+        check("a clock behind the start does not go negative", Board.agentList(sess(b), 5)[0].ms, 0);
+        check("no session, no agents", [Board.agentList(null, 1), Board.agentCalls(null, "a1", 5)], [[], []]);
+        var ac = Board.agentCalls(sess(b), "a1", 10);
+        check("agent calls: only its own, newest first", ac.map(function (c) { return c.label + ":" + c.ms; }), ["ls:9", "x.md:4"]);
+        check("agent calls are capped", Board.agentCalls(sess(b), "a1", 1).length, 1);
+        check("unknown agent has no calls", Board.agentCalls(sess(b), "zz", 5), []);
+
         // history: the recent calls at one station, newest first, capped, names and numbers only
         b = Board.newBoard();
         Board.fold(b, ev({ ts: 1, ev: "tool_start", id: "h1", station: "shell", label: "build it", tool: "Bash" }));
