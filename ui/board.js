@@ -33,6 +33,7 @@ function newSession(sid) {
         waitingId: null,          // the call whose permission ask is open, when the ask named one
         waiting: false,           // a permission ask or question is open: You waits on the owner
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
+        devtools: false,          // a chrome-devtools MCP tool was called this session (kept beyond the entries window)
         entries: [],              // newest last, at most MAX_ENTRIES
         byId: {},                 // tool-use id -> entry still in entries
         tasks: {},                // background task id -> { station, label, status }
@@ -119,6 +120,7 @@ function visit(sess, entry) {
 }
 
 function applyTool(sess, ev, ending) {
+    if (typeof ev.tool === "string" && ev.tool.indexOf("mcp__chrome-devtools__") === 0) sess.devtools = true;
     var entry = ev.id ? sess.byId[ev.id] : null;
     if (!entry) {
         entry = addEntry(sess, {

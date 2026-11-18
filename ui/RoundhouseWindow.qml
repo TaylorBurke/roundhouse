@@ -222,7 +222,10 @@ FloatingWindow {
                                            strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
         finderC.createObject(win.contentItem, { seq: seq, command: args });
     }
+    property bool browserBusy: false        // a window lookup is running: a second click waits for it
     function lookupBrowser() {
+        if (browserBusy) return;
+        browserBusy = true;
         var seq = ++lookupSeq;
         lookingFor = "";
         listNote = "Looking for browser windows\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
@@ -235,10 +238,11 @@ FloatingWindow {
         if (d.action === "focus") { focusBrowser(d.address); closeList(); }
         else if (d.action === "list") {
             listWins = d.windows; listRowsView = d.rows; listTitle = Board.report(null, listKey).title; listMode = "windows";
+        } else if (d.action === "error") { closeList(); toast("Could not list windows");
         } else { closeList(); toast("No browser window open"); }
     }
     function focusBrowser(address) {
-        Quickshell.execDetached(OpenList.browserFocusArgs(Quickshell.shellPath("../tools/browserwin.py"), address));
+        finderC.createObject(win.contentItem, { what: "focus", command: OpenList.browserFocusArgs(Quickshell.shellPath("../tools/browserwin.py"), address) });
     }
     function found(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;     // cancelled, or another lookup took over
@@ -282,8 +286,18 @@ FloatingWindow {
                 id: proc
                 command: job.command
                 running: true
-                stdout: StdioCollector { onStreamFinished: { if (job.what === "windows") win.foundWindows(job.seq, text); else win.found(job.seq, text); job.destroy(); } }
+                stdout: StdioCollector { onStreamFinished: {
+                    if (job.what === "focus") return;               // judged by the exit code
+                    if (job.what === "windows") win.foundWindows(job.seq, text); else win.found(job.seq, text);
+                    job.destroy();
+                } }
+                onExited: (code, status) => {
+                    if (job.what !== "focus") return;
+                    if (code !== 0) win.toast("Could not focus the window");
+                    job.destroy();
+                }
             }
+            Component.onDestruction: if (job.what === "windows") win.browserBusy = false
             Timer { interval: 8000; running: true; onTriggered: proc.running = false }
         }
     }

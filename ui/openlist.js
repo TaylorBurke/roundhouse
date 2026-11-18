@@ -287,28 +287,32 @@ function openHostArgs(script, host) {
 // ---- Browser: focus a window --------------------------------------------------------------------
 // Whether the session drove the chrome-devtools MCP (it launches a Chrome of its own, which is the one to go to).
 function usesDevtools(sess) {
-    return !!sess && sess.entries.some(function (e) { return e.station === "browser" && typeof e.tool === "string" && e.tool.indexOf("mcp__chrome-devtools__") === 0; });
+    return !!sess && sess.devtools === true;       // set by board.js for any call, however long ago
 }
 
-// What `browserwin.py list` answered (`text`), as a click: none (say so), one window (focus it) or
+// What `browserwin.py list` answered (`text`), as a click: error (it did not answer a list), none (say so), one window (focus it) or
 // several (list them by title to pick from). The windows to choose from: with the devtools MCP in
 // the session, its own windows if any; otherwise the everyday windows if any; else all of them.
 // Titles are page titles: shown, never stored.
 function onWindows(text, devtools) {
-    var all = [];
+    var all = [], ok = false;
     try {
         var parsed = JSON.parse(text);
-        if (Array.isArray(parsed)) all = parsed.filter(function (w) {
-            return w && typeof w.address === "string" && /^0x[0-9a-f]{1,16}$/.test(w.address);
-        });
+        if (Array.isArray(parsed)) {
+            ok = true;
+            all = parsed.filter(function (w) {
+                return w && typeof w.address === "string" && /^0x[0-9a-f]{1,16}$/.test(w.address);
+            });
+        }
     } catch (e) { }
+    if (!ok) return { action: "error" };          // the lookup failed (no answer, an error): not the same as no window
     var mine = all.filter(function (w) { return !!w.devtools === !!devtools; });
     var wins = mine.length > 0 ? mine : all;
     if (wins.length === 0) return { action: "none" };
     if (wins.length === 1) return { action: "focus", address: wins[0].address };
     return {
         action: "list", windows: wins,
-        rows: wins.map(function (w) { return { text: (typeof w.title === "string" && w.title !== "") ? w.title : (w.class || "window"), sub: w.devtools ? "devtools" : "" }; })
+        rows: wins.map(function (w) { return { text: (typeof w.title === "string" && w.title !== "") ? w.title : (w.class || "window"), sub: [w.workspace ? "ws " + w.workspace : "", w.class || "", w.devtools ? "devtools" : ""].filter(function (x) { return x !== ""; }).join(" \u00b7 ") }; })
     };
 }
 

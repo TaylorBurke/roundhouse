@@ -551,6 +551,7 @@ Item {
         }
         function test_the_open_command_is_one_list_with_the_host_as_one_argument() {
             compare(OpenList.openHostArgs("/s/openhost.py", "example.com"), ["python3", "-I", "/s/openhost.py", "open", "example.com"]);
+        }
         // ---- Browser: focus a window ----
         function test_browser_is_clickable_once_the_session_used_it() {
             compare(area("browser").cursorShape, Qt.ArrowCursor);
@@ -579,10 +580,30 @@ Item {
         function w(addr, title, devtools) { return { address: addr, title: title, class: "google-chrome", pid: 1, devtools: !!devtools }; }
         function test_no_window_means_none_and_junk_is_no_window() {
             compare(OpenList.onWindows("[]", false).action, "none");
-            compare(OpenList.onWindows("", false).action, "none");
-            compare(OpenList.onWindows("not json", true).action, "none");
-            compare(OpenList.onWindows("{\"a\":1}", false).action, "none");
             compare(OpenList.onWindows(JSON.stringify([{ address: "0x1;rm", title: "t" }, { title: "t" }, null]), false).action, "none");
+        }
+        function test_a_failed_lookup_is_an_error_not_no_window() {
+            compare(OpenList.onWindows("", false).action, "error");                       // killed, or python missing
+            compare(OpenList.onWindows("not json", true).action, "error");
+            compare(OpenList.onWindows("{\"error\":\"hyprctl\"}", false).action, "error");
+            compare(OpenList.onWindows(null, false).action, "error");
+        }
+        function test_devtools_use_is_remembered_beyond_the_80_entries_window() {
+            read("d", "browser", "x.com", "mcp__chrome-devtools__navigate_page");
+            for (var i = 0; i < 120; i++) read("f" + i, "files", "a/f" + i + ".md", "Read");
+            var sess = parent.board.sessions["aaaaaaaa"];
+            verify(!sess.entries.some(function (e) { return e.tool === "mcp__chrome-devtools__navigate_page"; }));
+            verify(OpenList.usesDevtools(sess));
+            verify(!OpenList.usesDevtools({}));
+            verify(!OpenList.usesDevtools({ stations: {} }));
+        }
+        function test_rows_tell_same_titled_windows_apart() {
+            var a = w("0x1", "New Tab"), c = w("0x3", "New Tab"), b = w("0x2", "New Tab", true);
+            a.workspace = "2"; c.workspace = "7"; b.workspace = "5";
+            var rows = OpenList.onWindows(JSON.stringify([a, c, b]), false).rows;
+            compare(rows[0].sub, "ws 2 \u00b7 google-chrome");
+            compare(rows[1].sub, "ws 7 \u00b7 google-chrome");
+            compare(OpenList.onWindows(JSON.stringify([b, w("0x4", "T", true)]), true).rows[0].sub, "ws 5 \u00b7 google-chrome \u00b7 devtools");
         }
         function test_one_window_is_focused_at_once() {
             var d = OpenList.onWindows(JSON.stringify([w("0xab1", "Page")]), false);

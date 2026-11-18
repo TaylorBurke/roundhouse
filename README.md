@@ -197,7 +197,7 @@ What moves and what it means:
   short) in the window and again in `tools/openhost.py`, which hands it to `xdg-open` as one
   argument, never through a shell. **Browser** (clickable once the session has used a browser tool) focuses the browser window
   (`tools/browserwin.py`, which asks the same Hyprland as the header's terminal focus): one window is
-  focused at once, several are listed by page title to pick from, and none gives a short note. If the
+  focused at once, several are listed by page title (with workspace and class beside it) to pick from, and none gives a short note (a failed lookup or focus says so instead). Only exact browser classes count; Chrome app and PWA windows do not. If the
   session drove the chrome-devtools MCP, its own Chrome window (found by its command line) is the one
   preferred; otherwise your everyday browser windows come first. Window level only: **tab selection is
   not possible**, because Chrome has no external API to activate a tab (see #60). A window's title is the
