@@ -185,6 +185,11 @@ FloatingWindow {
         clearToast();
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
+        if (d.action === "backstage") {      // the agent's own Chrome is in Backstage: say so, touch nothing
+            closeList();
+            toast("The agent's browser is in Backstage; run backstage view to see it");
+            return;
+        }
         if (d.action === "browser") lookupBrowser();
         else if (d.action === "memory") lookupMemory();       // whether or not any file was touched
         else if (d.action === "resolve") lookup(d.item);
@@ -234,7 +239,7 @@ FloatingWindow {
     }
     function foundWindows(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;
-        var d = OpenList.onWindows(text, OpenList.usesDevtools(session));
+        var d = OpenList.onWindows(text);
         if (d.action === "focus") { focusBrowser(d.address); closeList(); }
         else if (d.action === "list") {
             listWins = d.windows; listRowsView = d.rows; listTitle = Board.report(null, listKey).title; listMode = "windows";

@@ -195,14 +195,17 @@ What moves and what it means:
   digits, dots and hyphens; no spaces, scheme, port, login or leading `-`; non-ASCII names are not offered,
   and nothing converts them to punycode; a name of 40 characters or more is skipped as possibly cut
   short) in the window and again in `tools/openhost.py`, which hands it to `xdg-open` as one
-  argument, never through a shell. **Browser** (clickable once the session has used a browser tool) focuses the browser window
-  (`tools/browserwin.py`, which asks the same Hyprland as the header's terminal focus): one window is
-  focused at once, several are listed by page title (with workspace and class beside it) to pick from, and none gives a short note (a failed lookup or focus says so instead). Only exact browser classes count; Chrome app and PWA windows do not. If the
-  session drove the chrome-devtools MCP, its own Chrome window (found by its command line) is the one
-  preferred; otherwise your everyday browser windows come first. Window level only: **tab selection is
-  not possible**, because Chrome has no external API to activate a tab (see #60). A window's title is the
-  active tab's page title; it shows on screen only and is never stored. Other stations do nothing on a
-  left click yet.
+  argument, never through a shell. **Browser** (clickable once the session has used a browser tool) focuses a browser window on your
+  desktop (`tools/browserwin.py`, which asks the same Hyprland as the header's terminal focus): one window is
+  focused at once, several are listed by page title (with workspace and class beside it) to pick from, and
+  none gives a short note (a failed lookup or focus says so instead). Only exact browser classes count;
+  Chrome app and PWA windows do not. **If the session drove only the chrome-devtools MCP**, its Chrome runs
+  in Backstage (the agents' separate desktop), which a click here cannot list or focus: the click says so
+  ("The agent's browser is in Backstage; run `backstage view` to see it") and touches nothing. A session
+  that used the Claude-in-Chrome extension (with or without devtools), Playwright or the like gets your
+  everyday browser windows. Window level only: **tab selection is not possible**, because Chrome has no
+  external API to activate a tab (see #60). A window's title is the active tab's page title; it shows on
+  screen only and is never stored. Other stations do nothing on a left click yet.
 - **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
   status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started, and the
   subagent's type (`agent` if unknown) for a call a subagent made. It covers the last 80 events of the session, so older calls are gone. A station

@@ -28,7 +28,7 @@ var HANDLERS = {
     // a browser window to go to: there is one only if the session used the browser (in memory); which
     // windows exist is asked at the click (tools/browserwin.py)
     browser: { can: function (sess) { var b = sess && sess.stations && sess.stations.browser; return !!b && b.count > 0; },
-               action: "browser" }
+               action: browserAction }
 };
 
 // A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
@@ -108,7 +108,7 @@ function canOpen(key, sess, board) {
 function onClick(key, sess, board) {
     var h = HANDLERS[key];
     if (!h) return { action: "none" };
-    if (h.action) return { action: h.action };
+    if (h.action) return { action: typeof h.action === "function" ? h.action(sess) : h.action };
     return onNode(itemsOf(key, sess, board, 12), !!h.list);
 }
 
@@ -285,34 +285,34 @@ function openHostArgs(script, host) {
 }
 
 // ---- Browser: focus a window --------------------------------------------------------------------
-// Whether the session drove the chrome-devtools MCP (it launches a Chrome of its own, which is the one to go to).
-function usesDevtools(sess) {
-    return !!sess && sess.devtools === true;       // set by board.js for any call, however long ago
+// The agent's own Chrome (the chrome-devtools MCP) runs in Backstage, a separate headless desktop that a click
+// on the real desktop can neither list nor focus. A session that drove only that browser gets a note saying
+// where it is; one that used the Claude-in-Chrome extension (or Playwright and the like) gets the everyday
+// windows. The flags are set by board.js for any call, however long ago.
+function browserAction(sess) {
+    return sess && sess.devtools === true && sess.chromeExt !== true ? "backstage" : "browser";
 }
 
-// What `browserwin.py list` answered (`text`), as a click: error (it did not answer a list), none (say so), one window (focus it) or
-// several (list them by title to pick from). The windows to choose from: with the devtools MCP in
-// the session, its own windows if any; otherwise the everyday windows if any; else all of them.
+// What `browserwin.py list` answered (`text`), as a click: error (it did not answer a list), none (say so),
+// one window (focus it) or several (list them by title, workspace and class to pick from).
 // Titles are page titles: shown, never stored.
-function onWindows(text, devtools) {
-    var all = [], ok = false;
+function onWindows(text) {
+    var wins = [], ok = false;
     try {
         var parsed = JSON.parse(text);
         if (Array.isArray(parsed)) {
             ok = true;
-            all = parsed.filter(function (w) {
+            wins = parsed.filter(function (w) {
                 return w && typeof w.address === "string" && /^0x[0-9a-f]{1,16}$/.test(w.address);
             });
         }
     } catch (e) { }
     if (!ok) return { action: "error" };          // the lookup failed (no answer, an error): not the same as no window
-    var mine = all.filter(function (w) { return !!w.devtools === !!devtools; });
-    var wins = mine.length > 0 ? mine : all;
     if (wins.length === 0) return { action: "none" };
     if (wins.length === 1) return { action: "focus", address: wins[0].address };
     return {
         action: "list", windows: wins,
-        rows: wins.map(function (w) { return { text: (typeof w.title === "string" && w.title !== "") ? w.title : (w.class || "window"), sub: [w.workspace ? "ws " + w.workspace : "", w.class || "", w.devtools ? "devtools" : ""].filter(function (x) { return x !== ""; }).join(" \u00b7 ") }; })
+        rows: wins.map(function (w) { return { text: (typeof w.title === "string" && w.title !== "") ? w.title : (w.class || "window"), sub: [w.workspace ? "ws " + w.workspace : "", w.class || ""].filter(function (x) { return x !== ""; }).join(" \u00b7 ") }; })
     };
 }
 

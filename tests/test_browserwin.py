@@ -1,5 +1,5 @@
 """tools/browserwin.py: listing the browser windows and focusing one. `hyprctl` on PATH is a fake that
-answers `clients -j` and records the dispatches; /proc is a fake tree (BROWSERWIN_PROC)."""
+answers `clients -j` and records the dispatches."""
 import json
 import os
 import stat
@@ -16,8 +16,8 @@ def win(address="0x55aa11", klass="google-chrome", title="Some page - Google Chr
 
 
 class Tool(unittest.TestCase):
-    def run_tool(self, *args, clients=None, procs=None, hyprctl_fails=False, bad_json=False, dispatch_fails=False, dispatch_says="ok"):
-        """Returns (result, dispatches). `procs` maps pid -> command line text for the fake /proc."""
+    def run_tool(self, *args, clients=None, hyprctl_fails=False, bad_json=False, dispatch_fails=False, dispatch_says="ok"):
+        """Returns (result, dispatches)."""
         with tempfile.TemporaryDirectory() as d:
             record = os.path.join(d, "dispatches")
             fake = os.path.join(d, "hyprctl")
@@ -27,12 +27,7 @@ class Tool(unittest.TestCase):
             with open(fake, "w") as f:
                 f.write(f"#!/bin/sh\nif [ \"$1\" = clients ]; then\n{answer}\nelse\nprintf '%s\\n' \"$2\" >> '{record}'\n{after}\nfi\n")
             os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR)
-            proc = os.path.join(d, "proc")
-            for pid, cmd in (procs or {}).items():
-                os.makedirs(os.path.join(proc, str(pid)))
-                with open(os.path.join(proc, str(pid), "cmdline"), "wb") as f:
-                    f.write(cmd.replace(" ", "\0").encode())
-            env = {**os.environ, "PATH": d + os.pathsep + os.environ["PATH"], "BROWSERWIN_PROC": proc}
+            env = {**os.environ, "PATH": d + os.pathsep + os.environ["PATH"]}
             run = subprocess.run([TOOL, *args], env=env, capture_output=True, text=True, timeout=20)
             sent = []
             if os.path.exists(record):
@@ -40,8 +35,8 @@ class Tool(unittest.TestCase):
                     sent = f.read().splitlines()
             return run, sent
 
-    def listed(self, clients, procs=None):
-        run, _ = self.run_tool("list", clients=clients, procs=procs)
+    def listed(self, clients):
+        run, _ = self.run_tool("list", clients=clients)
         self.assertEqual(run.returncode, 0, run.stderr)
         return json.loads(run.stdout)
 
@@ -50,22 +45,12 @@ class Tool(unittest.TestCase):
                            win("0x4", "chromium", "x", 7), win("0x5", "Brave-browser", "y", 8),
                            win("0x6", "org.quickshell", "roundhouse: a", 9)])
         self.assertEqual([w["address"] for w in out], ["0x55aa11", "0x3", "0x4", "0x5"])
-        self.assertEqual(sorted(out[0]), ["address", "class", "devtools", "pid", "title", "workspace"])
+        self.assertEqual(sorted(out[0]), ["address", "class", "pid", "title", "workspace"])
 
     def test_list_skips_unmapped_and_malformed_windows(self):
         out = self.listed([win(mapped=False), win(address="55aa"), win(address=5), "junk", None,
                            win("0x9", title=None)])
         self.assertEqual([(w["address"], w["title"]) for w in out], [("0x9", "")])
-
-    def test_the_devtools_mcp_instance_is_told_apart_by_its_command_line(self):
-        out = self.listed([win("0x1", pid=10), win("0x2", pid=20), win("0x3", pid=30)],
-                          procs={10: "/usr/bin/chrome --profile-directory=Default",
-                                 20: "/usr/bin/chrome --user-data-dir=/home/u/.cache/chrome-devtools-mcp/chrome-profile"})
-        self.assertEqual([w["devtools"] for w in out], [False, True, False])     # pid 30 has no /proc entry
-
-    def test_list_never_prints_a_command_line(self):
-        run, _ = self.run_tool("list", clients=[win(pid=20)], procs={20: "/usr/bin/chrome --secret-flag=hunter2 chrome-devtools-mcp"})
-        self.assertNotIn("hunter2", run.stdout + run.stderr)
 
     def test_list_fails_quietly_when_hyprctl_is_broken(self):
         for kw in ({"hyprctl_fails": True}, {"bad_json": True}):
@@ -84,14 +69,12 @@ class Tool(unittest.TestCase):
         out = self.listed([win(workspace={"id": 3, "name": "3"}), win("0x2", workspace=None), win("0x3", workspace={"id": 1})])
         self.assertEqual([w["workspace"] for w in out], ["3", "", ""])
 
-    def test_focus_does_not_probe_proc(self):
-        run, sent = self.run_tool("focus", "0x55aa11", clients=[win(pid=20)], procs={})
-        self.assertEqual((run.returncode, len(sent)), (0, 1))
-        import importlib.machinery, importlib.util
-        loader = importlib.machinery.SourceFileLoader("bw", TOOL)
-        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("bw", loader)); loader.exec_module(mod)
-        mod.is_devtools = lambda pid: (_ for _ in ()).throw(AssertionError("probed"))
-        self.assertEqual(len(mod.windows([win()], probe=False)), 1)
+    def test_the_tool_never_reads_proc_or_a_command_line(self):
+        with open(TOOL) as f:
+            text = f.read()
+        self.assertNotIn("/proc", text)
+        self.assertNotIn("cmdline", text)
+        self.assertNotIn("devtools", text.lower())
 
     def test_a_dispatch_that_prints_an_error_and_exits_0_is_a_failure(self):
         for says in ("'Invalid dispatcher'", "''"):
