@@ -118,6 +118,7 @@ FloatingWindow {
         session: win.session
         revision: win.tail.revision
         windowSetting: win.settings.contextWindow
+        slowSeconds: win.settings.slowCallSeconds
         bg: theme.bg; disc: theme.disc; discEdge: theme.discEdge; line: theme.line; ring: theme.ring
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
         accent: theme.accent; alert: theme.alert; memory: theme.memory

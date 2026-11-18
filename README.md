@@ -53,7 +53,8 @@ Prompts, command lines, file contents, tool output and memory text are never wri
 Control characters are stripped from every label. The emitter makes no network calls,
 starts no processes, prints nothing and always exits 0, and the hooks are registered as
 `async`, so they cannot hold up or alter a tool call. Nothing in roundhouse uses the network.
-The log is on tmpfs, readable only by you, and gone at logout.
+The log is on tmpfs, readable only by you, and gone at logout. The waiting, heat and slow-call cues
+are worked out on screen from the same names and timestamps; they add nothing to the log.
 
 One exception to "names only", and only on screen: if you use claude-strip, a session's window
 shows the strip's task title (a summary of your prompts; see "The session header"). It is read
@@ -200,6 +201,12 @@ What moves and what it means:
 - **A dot circling Agents** per running subagent. A background task keeps its station lit after its
   own turn is over.
 - **A wide ring from the hub**: an answer finished. **Rings at the hub and Model**: a model change.
+- **You pulsing** with a tinted disc in the accent colour: a permission ask or question is open and Claude
+  is waiting for you. It stops at your next message, the answer, the call going ahead, or a denial.
+  See [Waiting, pressing, heat and slow calls](#waiting-pressing-heat-and-slow-calls).
+- **A faint ring round a station**, thicker and stronger with its share of the session's calls (usage heat).
+- **An amber outline** on a station whose own running call has passed two minutes (see Options).
+- **A small ripple** where you press a station, whether or not it opens anything.
 - **The feed** under the map: `●` running, `·` done, `✕` failed or blocked; finished rows at one
   station fold into one with `+N`.
 
@@ -208,6 +215,7 @@ What moves and what it means:
 | What | How | Default |
 | --- | --- | --- |
 | Context window size | `~/.config/roundhouse/config.json`: `{"contextWindow": "1m"}` (a number, `"200k"`, `"1m"` or `"auto"`); watched, no restart | guessed from the model name, else 200k |
+| Slow-call threshold | `~/.config/roundhouse/config.json`: `{"slowCallSeconds": 120}` (seconds; `0` or `"off"` disables); watched | 120 (2 minutes) |
 | Colours | follows the Omarchy theme; `ROUNDHOUSE_THEME=/path/to/colors.toml` tries another | the current theme |
 | Window size, always on top | edit `hypr/roundhouse.lua` (`size`, `pin`) | 360x680; the all-sessions window pinned, session windows not |
 | Keys in the all-sessions window | `[` `]` or arrows step, space lists, `1`-`9` pick, `a` auto, `w` pop out, escape | |
@@ -336,6 +344,43 @@ call is a hint, around sixty is full.
 
 ![legs at 2 s, 45 s, 55 s and 62 s; Files, Shell and Network spokes worn by use](docs/route-fade.png)
 
+### Waiting, pressing, heat and slow calls
+
+Four small cues, all drawn behind the stations so nothing moves. Each is shown here on a dark
+theme and on Catppuccin Latte (`ROUNDHOUSE_THEME=/usr/share/omarchy/themes/catppuccin-latte/colors.toml`).
+
+**Waiting on you.** While a permission ask or a question is open (a `PermissionRequest`, or a
+`permission_prompt` / `elicitation_dialog` notification), You pulses in the accent colour. The usual
+`idle_prompt` notice (Claude finished and waits for your next message) does not count. It clears on your
+next prompt, the answer finishing, the call going ahead, a denial, or the session ending.
+
+| dark | light |
+| --- | --- |
+| ![You pulsing](docs/visual-waiting-dark.png) | ![You pulsing, light theme](docs/visual-waiting-light.png) |
+
+**Slow call.** A station whose own running call is older than the threshold gets an amber outline
+(Shell here, running `sleep 600` for four minutes). Background tasks are left out, since they are meant
+to run long. The threshold is `slowCallSeconds` in `~/.config/roundhouse/config.json`, default 120.
+
+| dark | light |
+| --- | --- |
+| ![amber outline on Shell](docs/visual-slow-dark.png) | ![amber outline on Shell, light theme](docs/visual-slow-light.png) |
+
+**Usage heat.** A faint ring per station, thicker and brighter with its share of the session's calls
+(Files holds 14 of 26 here). Unlike the spokes, which wear on a log scale, this is the plain share.
+
+| dark | light |
+| --- | --- |
+| ![heat rings, Files strongest](docs/visual-heat-dark.png) | ![heat rings, light theme](docs/visual-heat-light.png) |
+
+**Press feedback.** Pressing any station, whether or not it opens anything, sends a brief ripple out from it.
+The ripple lasts well under half a second; these screenshots slow it to three seconds to catch it
+(on Files).
+
+| dark | light |
+| --- | --- |
+| ![press ripple on Files](docs/visual-press-dark.png) | ![press ripple on Files, light theme](docs/visual-press-light.png) |
+
 ### Error dots, clock hands and parallel calls
 
 ![red dots with counts, clock hands on Shell, x3 on Files](docs/dots-hands.png)
@@ -457,7 +502,7 @@ bin/lot-map-log -s 7c8862de  one session only
 python3 -m unittest discover -s tests
 ```
 
-Covers the emitter, the board logic and the theme (QML run under `qml6`),
+Covers the emitter, the board logic and the theme (QML run under `qml6`), the map's waiting, slow, heat and press cues (`tests/visuals.test.qml`),
 the switcher and session header (clicks through Qt's input system, under `qmltestrunner`), the window
 list, the strip reader, the transcript reader (`tools/transcript.py`, read-only, fake home and fixture transcripts: huge or NaN/deeply nested lines, tail reads, interrupted prompts), and the installer (including an exact install-then-uninstall round trip).
 The terminal log viewer (`bin/lot-map-log`) has no tests of its own. A real mouse on a real Wayland window is not covered: the clicks are tested in Qt, the rest of the
