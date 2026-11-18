@@ -31,7 +31,7 @@ Rectangle {
         boundsBehavior: Flickable.StopAtBounds
         Column {
             id: col
-            width: parent.width
+            width: root.width - 16
             spacing: 6
             Text {
                 width: parent.width

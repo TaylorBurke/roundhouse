@@ -174,7 +174,10 @@ FloatingWindow {
     property int lookupSeq: 0
     function closeList() { lookupSeq++; listMode = ""; listWins = []; noteTimer.stop(); turnView = ({ steps: [], note: "", summary: "" }); }
     onShownSidChanged: { closeList(); clearToast(); }
-    onListModeChanged: if (listMode !== "") clearToast()      // a list and a toast never show together
+    onListModeChanged: {
+        if (listMode !== "") clearToast();      // a list and a toast never show together
+        if (listMode !== "turn") turnView = ({ steps: [], note: "", summary: "" });   // reasoning never outlives its panel
+    }
 
     function nodeClicked(key, anchor) {
         var d = OpenList.onClick(key, session, Board);
@@ -236,15 +239,16 @@ FloatingWindow {
         var t = Turn.parse(text);
         if (!t.found) {
             closeList();
-            toast(t.error === "missing" ? "Transcript not found" : "Could not read the transcript");
+            toast(t.error === "missing" ? "Transcript not found" : t.error === "empty" ? "No turn yet in this session" : "Could not read the transcript");
             return;
         }
         turnView = t; listMode = "turn";
     }
     function openTranscript() {
-        if (Turn.validSid(shownSid))
-            Quickshell.execDetached(Turn.openArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid));
+        var ok = Turn.validSid(shownSid);
         closeList();
+        if (!ok) { toast("Could not open the transcript"); return; }
+        openJobC.createObject(win.contentItem, { command: Turn.openArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
     }
     function lookupMemory() {
         var seq = ++lookupSeq;
@@ -346,6 +350,21 @@ FloatingWindow {
                 stdout: StdioCollector { onStreamFinished: { win.turnAnswered(tjob.seq, text); tjob.destroy(); } }
             }
             Timer { interval: 8000; running: true; onTriggered: tproc.running = false }
+        }
+    }
+    // `transcript.py open SID` as a job, so a failed open (exit not 0) is told, not silent
+    Component {
+        id: openJobC
+        Item {
+            id: ojob
+            property var command: []
+            Process {
+                id: oproc
+                command: ojob.command
+                running: true
+                onExited: (code, status) => { if (code !== 0) win.toast("Could not open the transcript"); ojob.destroy(); }
+            }
+            Timer { interval: 8000; running: true; onTriggered: oproc.running = false }
         }
     }
     Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }

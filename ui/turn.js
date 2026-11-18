@@ -17,7 +17,7 @@ function openArgs(script, sid) { return ["python3", "-I", script, "open", sid]; 
 
 function clean(s, n) {
     if (typeof s !== "string") return "";
-    return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").trim().slice(0, n);
+    return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]+/g, " ").trim().slice(0, n);
 }
 
 function num(v) { return typeof v === "number" && isFinite(v) && v >= 0 ? v : 0; }
@@ -37,8 +37,11 @@ function span(ms) {
 function parse(text) {
     var j;
     try { j = JSON.parse(text); } catch (e) { return { found: false, error: "unreadable", steps: [], note: "", summary: "" }; }
-    if (!j || typeof j !== "object" || !j.found || !j.turn || typeof j.turn !== "object")
-        return { found: false, error: j && j.error ? "unreadable" : "missing", steps: [], note: "", summary: "" };
+    if (!j || typeof j !== "object" || j.error)
+        return { found: false, error: "unreadable", steps: [], note: "", summary: "" };
+    if (!j.found) return { found: false, error: "missing", steps: [], note: "", summary: "" };
+    if (!j.turn || typeof j.turn !== "object" || !Array.isArray(j.turn.steps) || j.turn.steps.length === 0)
+        return { found: false, error: "empty", steps: [], note: "", summary: "" };
     var t = j.turn, all = Array.isArray(t.steps) ? t.steps : [];
     var shown = all.slice(-SHOW_STEPS);
     var steps = shown.map(function (s) {

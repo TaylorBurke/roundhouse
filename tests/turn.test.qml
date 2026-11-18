@@ -86,6 +86,31 @@ Item {
             compare(Turn.parse("").error, "unreadable");
             compare(Turn.parse("not json").found, false);
             compare(Turn.parse('{"found": true}').found, false);
+            compare(Turn.parse('{"found": true}').error, "empty");
+            compare(Turn.parse('{"found": true, "turn": {"steps": []}}').error, "empty");
+        }
+        function test_model_needs_a_valid_session_id() {
+            verify(!OpenList.canOpen("model", { sid: "short", entries: [{}] }, Board));
+            verify(!OpenList.canOpen("model", { entries: [{}] }, Board));
+            verify(OpenList.canOpen("model", { sid: "abcd1234", entries: [{}] }, Board));
+        }
+        function test_invisible_and_bidi_characters_are_stripped() {
+            var c = JSON.parse(JSON.stringify(canned));
+            c.turn.steps = [{ think_ms: 1, thinking: "a‮b​c⁦d⁩e﻿⁠f", tokens_in: 1, tokens_out: 1, tools: ["Re‏ad‪"] }];
+            var t = Turn.parse(JSON.stringify(c));
+            compare(t.steps[0].text, "a b c d e f");
+            compare(t.steps[0].tools, "Re ad");
+        }
+        function test_panel_height_is_stable_at_344() {
+            var t = Turn.parse(JSON.stringify(canned));
+            panel.maxHeight = 1000; panel.summary = t.summary; panel.note = t.note; panel.steps = t.steps;
+            wait(50);
+            compare(panel.width, 344);
+            var h = panel.height;
+            wait(50);
+            compare(panel.height, h);
+            compare(findChild(panel, "step0").width, 344 - 16);
+            verify(h > 60 && h < 1000);
         }
         function test_commands_carry_only_the_session_id() {
             compare(Turn.turnArgs("/t.py", "aaaaaaaa").join(" "), "python3 -I /t.py turn aaaaaaaa");

@@ -64,7 +64,8 @@ A second one, also only on screen: clicking **Model** opens a turn panel. It rea
 transcript (`~/.claude/projects/...jsonl`) at the click and shows each step's think time, tokens, tools
 and, when the transcript has one, the model's reasoning summary (cut to 400 characters; the last 8 steps).
 That text lives only in the panel until you close it: it is never written to roundhouse's log, never put
-in a command line, and the transcript is only read, never changed.
+in a command line, and the transcript is only read, never changed. The "Open the raw transcript" button
+hands the file to your default editor, which then has the whole transcript.
 
 ## Install
 

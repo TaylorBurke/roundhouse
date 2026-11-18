@@ -34,7 +34,9 @@ var HANDLERS = {
 
 // Cheap (in memory): Model opens its turn panel once the session has any entry; whether the transcript
 // exists is only learned at the click, which toasts when it does not.
-function modelCan(sess) { return !!sess && !!sess.entries && sess.entries.length > 0; }
+function modelCan(sess) {
+    return !!sess && typeof sess.sid === "string" && /^[A-Za-z0-9_-]{8}$/.test(sess.sid) && !!sess.entries && sess.entries.length > 0;
+}
 
 // A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
 // digits and hyphens, none starting or ending with a hyphen, ASCII only (a non-ASCII name is simply not

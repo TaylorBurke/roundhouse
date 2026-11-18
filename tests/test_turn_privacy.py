@@ -55,6 +55,11 @@ class TurnPanelNeverRunsTranscriptText(unittest.TestCase):
             if "text:" in m.group(0):
                 self.assertIn("Text.PlainText", m.group(0))
 
+    def test_the_reasoning_is_cleared_whenever_the_panel_is_left(self):
+        m = re.search(r"onListModeChanged: \{(.*?)\n    \}", self.window, re.S)
+        self.assertIsNotNone(m)
+        self.assertIn('if (listMode !== "turn") turnView = ({ steps: [], note: "", summary: "" })', m.group(1))
+
     def test_what_is_kept_is_cleared_on_close(self):
         self.assertIn("turnView = ({ steps: [], note: \"\", summary: \"\" })", function_body(self.window, "closeList"))
 
