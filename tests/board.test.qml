@@ -369,6 +369,10 @@ QtObject {
         Board.fold(b, ev({ ts: 5.5, ev: "tool_end", id: "ag1", station: "files", label: "sub/x.md", tool: "Read", status: "ok", ms: 3, agent: "a1" }));
         check("history marks a subagent's call", Board.history(sess(b), "files", 10).map(function (h) { return h.agent; }), [true, false]);
         Board.fold(b, ev({ ts: 6, ev: "prompt" }));
+        sess(b).entries.push({ ts: 5.6, station: "files", label: "odd", status: "ok", ms: null });
+        check("history turns a null duration into none", Board.history(sess(b), "files", 1)[0].ms, undefined);
+        sess(b).entries.pop();
+        check("an unknown station titles itself by its key", [Board.report(null, "zzz").title, Board.report(sess(b), "zzz").title], ["zzz", "zzz"]);
         check("history has the notes too", Board.history(sess(b), "you", 10).map(function (h) { return h.label; }), ["new message"]);
         for (i = 0; i < 20; i++) Board.fold(b, ev({ ts: 10 + i, ev: "tool_end", id: "m" + i, station: "network", label: "n" + i, tool: "WebFetch", status: "ok", ms: 5 }));
         check("history default is ten", Board.history(sess(b), "network").length, 10);

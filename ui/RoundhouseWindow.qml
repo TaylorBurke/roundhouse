@@ -176,6 +176,7 @@ FloatingWindow {
     function nodeClicked(key, anchor) {
         var d = OpenList.onClick(key, session, Board);
         if (d.action === "none") return;
+        clearToast();
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
         if (d.action === "memory") lookupMemory();       // whether or not any file was touched
@@ -191,6 +192,7 @@ FloatingWindow {
             toast("Nothing at " + Board.report(null, key).title + " yet");
             return;
         }
+        clearToast();
         listKey = key; listAnchor = anchor;
         lookupSeq++; listItems = []; listPaths = [];
         listTitle = Board.report(null, key).title + " \u00b7 recent";
@@ -278,7 +280,13 @@ FloatingWindow {
         anchors.fill: parent
         z: 90
         visible: win.listMode !== ""
-        onClicked: win.closeList()
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onClicked: mouse => {
+            // a right click on a station opens that station's recent calls, as it does with no list open
+            var at = mouse.button === Qt.RightButton ? map.stationAt(mouse.x - map.x, mouse.y - map.y) : "";
+            if (at !== "") win.nodeRightClicked(at, map.pos(map.indexOf(at)));
+            else win.closeList();
+        }
     }
     OpenList {
         id: openList

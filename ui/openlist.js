@@ -6,8 +6,9 @@
 // station an entry here instead of editing a shared switch. An entry says where its items come from:
 // `names` (the names Board.openables finds), `always` (there is always something, no lookup of
 // names), or `items(sess, key, max)` (its own provider, returning a list); and what the window does
-// with a click: `action` (for an entry that is not a list of names). A station with no entry reacts
-// to a right click only (its recent calls), and nothing is computed for it.
+// with a click: `action` (for an entry that is not a list of names). An `always` entry must name an
+// `action`, or it is not openable (a hand cursor over something that does nothing). A station with
+// no entry reacts to a right click only (its recent calls), and nothing is computed for it.
 var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
@@ -27,7 +28,7 @@ function itemsOf(key, sess, board, max) {
 function canOpen(key, sess, board) {
     var h = HANDLERS[key];
     if (!h) return false;
-    if (h.always) return true;
+    if (h.always) return !!h.action;
     return itemsOf(key, sess, board, 1).length > 0;
 }
 
@@ -176,6 +177,7 @@ function durationLabel(ms) {
 
 // How long ago, from `seconds`: "now", "40s", "5m", "2h".
 function ageLabel(seconds) {
+    if (typeof seconds !== "number" || isNaN(seconds)) return "";
     if (seconds < 10) return "now";
     if (seconds < 60) return Math.floor(seconds) + "s";
     if (seconds < 3600) return Math.floor(seconds / 60) + "m";
@@ -189,7 +191,8 @@ function historyRows(calls, now) {
     return (calls || []).map(function (c) {
         var parts = [c.status || "ok"];
         if (c.status !== "running" && c.ms !== undefined && c.ms !== null) parts.push(durationLabel(c.ms));
-        parts.push(ageLabel(Math.max(0, now - c.ts)));
+        var age = ageLabel(Math.max(0, now - c.ts));
+        if (age !== "") parts.push(age);
         if (c.agent) parts.push("agent");
         return { text: c.label || "", sub: parts.join(" \u00b7 ") };
     });

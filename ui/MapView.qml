@@ -535,6 +535,15 @@ Item {
     readonly property var tip: tipShown && !listOpen && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
     readonly property point tipAnchor: indexOf(hoverKey) >= 0 ? pos(indexOf(hoverKey)) : Qt.point(cx, cy)
 
+    // The station whose click area holds the point (x, y), or "": the same boxes as the areas below.
+    // The window uses it to send a right click that landed on the click-away overlay to its station.
+    function stationAt(x, y) {
+        for (var i = 0; i < stations.length; i++) {
+            var p = pos(i);
+            if (x >= p.x - discR * 1.5 && x < p.x + discR * 1.5 && y >= p.y - discR * 1.2 && y < p.y + discR * 2.6) return stations[i].key;
+        }
+        return "";
+    }
     Repeater {
         model: root.stations
         MouseArea {
@@ -545,7 +554,7 @@ Item {
             objectName: "station_" + modelData.key
             readonly property bool clickable: root.canOpen(modelData.key)
             hoverEnabled: true
-            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            acceptedButtons: clickable ? (Qt.LeftButton | Qt.RightButton) : Qt.RightButton   // a left press passes through where nothing opens
             cursorShape: clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
             onEntered: root.hoverKey = modelData.key
             onExited: if (root.hoverKey === modelData.key) root.hoverKey = ""

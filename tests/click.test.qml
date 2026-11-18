@@ -127,6 +127,23 @@ Item {
             compare(rights.count, 1);
             mouseMove(map, 2, 2);
         }
+        function test_a_left_press_passes_through_a_station_with_nothing_to_open() {
+            compare(area("shell").acceptedButtons, Qt.RightButton);          // only the right button is taken
+            read("a", "files", "src/app.ts");
+            compare(area("files").acceptedButtons, Qt.LeftButton | Qt.RightButton);
+            var p = station("shell");
+            mousePress(map, p.x, p.y, Qt.LeftButton);
+            compare(area("shell").pressed, false);                           // not accepted: it is not ours
+            mouseRelease(map, p.x, p.y, Qt.LeftButton);
+        }
+        function test_the_station_under_a_point_is_found_for_the_click_away_overlay() {
+            ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"].forEach(function (k) {
+                var p = station(k);
+                compare(map.stationAt(p.x, p.y), k);
+            });
+            compare(map.stationAt(map.cx, map.cy), "");                       // the hub is no station
+            compare(map.stationAt(-5, -5), "");
+        }
         function test_a_station_with_nothing_to_open_stays_an_arrow_and_does_not_react() {
             compare(area("files").cursorShape, Qt.ArrowCursor);
             mouseClick(map, station("files").x, station("files").y);
@@ -182,16 +199,22 @@ Item {
             verify(!OpenList.canOpen("files", null, { openables: function () { return []; } }));
         }
         function test_a_new_entry_can_bring_its_own_items_without_touching_board_js() {
-            OpenList.HANDLERS.hooks = { items: function (sess, key, max) { return [{ label: "h", count: 1 }]; } };
             var board = { openables: function () { throw new Error("must not be asked"); } };
-            verify(OpenList.canOpen("hooks", null, board));
-            compare(OpenList.onClick("hooks", null, board).action, "resolve");
-            OpenList.HANDLERS.hooks = { items: function () { return []; } };
-            verify(!OpenList.canOpen("hooks", null, board));
-            OpenList.HANDLERS.hooks = { always: true, action: "custom" };
-            verify(OpenList.canOpen("hooks", null, board));
-            compare(OpenList.onClick("hooks", null, board).action, "custom");
-            delete OpenList.HANDLERS.hooks;
+            try {
+                OpenList.HANDLERS.hooks = { items: function (sess, key, max) { return [{ label: "h", count: 1 }]; } };
+                verify(OpenList.canOpen("hooks", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "resolve");
+                OpenList.HANDLERS.hooks = { items: function () { return []; } };
+                verify(!OpenList.canOpen("hooks", null, board));
+                OpenList.HANDLERS.hooks = { always: true, action: "custom" };
+                verify(OpenList.canOpen("hooks", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "custom");
+                OpenList.HANDLERS.hooks = { always: true };                  // nothing to do on a click: not openable
+                verify(!OpenList.canOpen("hooks", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "none");
+            } finally {
+                delete OpenList.HANDLERS.hooks;
+            }
             verify(!OpenList.canOpen("hooks", null, board));
         }
         function test_a_left_click_goes_through_the_table_as_it_did() {
@@ -228,6 +251,9 @@ Item {
             compare([999.6, 999.4, 9949, 9950, 59499, 59500, -5, -0.4].map(OpenList.durationLabel),
                     ["1s", "999ms", "9.9s", "10s", "59s", "1m", "0ms", "0ms"]);       // the unit is picked after rounding; never negative
             compare(OpenList.durationLabel(NaN), "");
+            compare([undefined, null, NaN, "x"].map(OpenList.ageLabel), ["", "", "", ""]);
+            var odd = OpenList.historyRows([{ label: "x", status: "ok", ms: 5 }, { label: "y", status: "ok", ts: "soon" }], 100);
+            compare(odd.map(function (r) { return r.sub; }), ["ok \u00b7 5ms", "ok"]);        // no NaN, no dangling separator
             compare(OpenList.durationLabel(undefined), "");
             compare([0, 9, 10, 59, 60, 3599, 3600, 7300].map(OpenList.ageLabel), ["now", "now", "10s", "59s", "1m", "59m", "1h", "2h"]);
             compare(OpenList.historyRows([{ label: "x", status: "ok", ms: 5, ts: 200 }], 100)[0].sub, "ok \u00b7 5ms \u00b7 now");   // a clock a little behind never goes negative

@@ -429,7 +429,7 @@ function history(sess, key, max) {
     if (!sess) return [];
     var out = [];
     sess.entries.forEach(function (e) {
-        if (e.station === key) out.push({ label: e.label, status: e.status, ms: e.ms, ts: e.ts, agent: !!e.agent });
+        if (e.station === key) out.push({ label: e.label, status: e.status, ms: e.ms === null ? undefined : e.ms, ts: e.ts, agent: !!e.agent });
     });
     return out.reverse().slice(0, max || 10);
 }
