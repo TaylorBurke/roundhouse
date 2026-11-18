@@ -194,7 +194,7 @@ What moves and what it means:
   `/tmp/claude-<uid>/<project>/<session id>/tasks/<task id>.output`, found from the task id and the session id
   by folder names only. If the file is gone, a short toast says so. The same file checks apply (an existing
   regular file in your home folder or Claude's scratch folder; a link that leads elsewhere is refused).
-- **Click Files, Memory, Skills, Browser or Hooks** (the station has a faint backlight, and the pointer turns into a hand,
+- **Click Files, Memory, Skills, Network, Browser, Hooks or Agents** (the station has a faint backlight, and the pointer turns into a hand,
   when there is something to open). **Files** and **Skills** open the file behind a name in your editor
   (`omarchy launch editor`; pictures, video, audio and PDFs go to your default viewer): one name opens
   at once, several are listed to pick from, and a name that matches several files lists those. The log
@@ -238,13 +238,25 @@ What moves and what it means:
   everyday browser windows. Window level only: **tab selection is not possible**, because Chrome has no
   external API to activate a tab (see #60). A window's title is the active tab's page title; it shows on
   screen only and is never stored.
+  **Agents** (backlit once the session has had a subagent) lists the
+  session's subagents, running ones first and then the finished ones, which stay listed for the rest of the
+  session (the 12 most recent): the type, its status and how long it ran (so far, while it runs). Picking one
+  shows its calls (newest first, up to eight, from the log: name, status, time) and an "Open transcript" row:
+  the transcript is looked up at that click by `tools/transcript.py path` (the session's 8-character id and the
+  agent id, both checked) and handed to your editor only if it is a `.jsonl` file below `~/.claude/projects`.
+  If it cannot be found, or the editor cannot be started, you get a short note. Names only are read; nothing is written.
+  Known limits: the open agent view is a snapshot (it does not refresh while it is showing), and an
+  agent whose end event was lost stays shown as running.
   **Model** opens a small read-only panel for the current turn, read
   from the transcript at the click (`tools/transcript.py turn`): per step the think time, tokens in and
   out, the tools called and the reasoning summary (or "redacted"), the last 8 steps. A one-line note says
   when the numbers may be incomplete (a huge transcript read from its tail, output capped, or an id that
   matches several sessions). "Open the raw transcript" hands that one `.jsonl` (found by the tool, a regular
-  file inside `~/.claude/projects`) to the editor. No transcript: a toast. Other stations do nothing on a
-  left click yet.
+  file inside `~/.claude/projects`) to the editor. No transcript: a toast.
+  Left click, station by station: You focuses the terminal and offers drafts; Model opens the turn panel;
+  Shell lists background tasks; Network lists hosts and MCP servers; Browser focuses a browser window;
+  Agents lists the subagents; Memory, Files and Skills open the file; Hooks lists the configured hooks;
+  the hub opens the context panel. Right-click on any station shows its recent calls.
 - **Click the hub** (a hand cursor shows when the session has a context reading or any logged call) for
   the context panel: a small line of the tokens in the context at each model call over the whole session
   (thinned to about 60 points, in the theme's colours), the current reading against the window, the peak,

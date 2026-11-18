@@ -38,7 +38,7 @@ function newSession(sid) {
         entries: [],              // newest last, at most MAX_ENTRIES
         byId: {},                 // tool-use id -> entry still in entries
         tasks: {},                // background task id -> { station, label, status, since, end }
-        agents: {}                // agent id -> { type, running }
+        agents: {}                // agent id -> { type, running, since, until } (seconds; until is null while it runs)
     };
 }
 
@@ -225,13 +225,14 @@ function fold(board, ev) {
         note(sess, ev, "hooks", "denied: " + (ev.tool || ""), "err");
     } else if (kind === "agent_start") {
         if (ev.agent && ev.type) {
-            sess.agents[ev.agent] = { type: ev.type, running: true };
+            sess.agents[ev.agent] = { type: ev.type, running: true, since: ev.ts, until: null };
             note(sess, ev, "agents", ev.type + " started");
         }
     } else if (kind === "agent_end") {
         var agent = sess.agents[ev.agent];          // an end with no matching start is an internal agent
         if (agent) {
             agent.running = false;
+            agent.until = ev.ts;
             if (sess.tasks[ev.agent] && sess.tasks[ev.agent].status === "running") { sess.tasks[ev.agent].status = "ok"; sess.tasks[ev.agent].end = ev.ts; }
             note(sess, ev, "agents", agent.type + " finished");
         }
@@ -567,6 +568,34 @@ function history(sess, key, max) {
     return out.reverse().slice(0, max || 10);
 }
 
+// The session's subagents for the Agents list: running ones first (most recently started first), then the
+// finished ones (most recently ended first); they stay for the whole session. { id, type, running, since,
+// until, ms } where `ms` is how long it ran (so far, from `now`, while it runs); undefined when unknown.
+function agentList(sess, now) {
+    if (!sess) return [];
+    var out = Object.keys(sess.agents).map(function (id) {
+        var a = sess.agents[id];
+        var end = a.running ? now : a.until;
+        var ms = typeof a.since === "number" && typeof end === "number" ? Math.max(0, (end - a.since) * 1000) : undefined;
+        return { id: id, type: a.type, running: !!a.running, since: a.since, until: a.until, ms: ms };
+    });
+    out.sort(function (x, y) {
+        if (x.running !== y.running) return x.running ? -1 : 1;
+        return (y.running ? y.since : y.until) - (x.running ? x.since : x.until) || 0;
+    });
+    return out;
+}
+
+// The calls one subagent made (entries carrying its id), newest first, at most `max`: { label, status, ms, ts }.
+function agentCalls(sess, agent, max) {
+    if (!sess || !agent) return [];
+    var out = [];
+    sess.entries.forEach(function (e) {
+        if (e.agent === agent && e.tool) out.push({ label: e.label, status: e.status, ms: e.ms === null ? undefined : e.ms, ts: e.ts });   // calls only: a "started"/"finished" note has no tool
+    });
+    return out.reverse().slice(0, max || 10);
+}
+
 // How many subagents are running, for the dots that orbit the Agents station.
 function runningAgents(sess) {
     if (!sess) return 0;
@@ -609,7 +638,7 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, agentList: agentList, agentCalls: agentCalls, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
 // ---- draft prompts (a left click on You) ------------------------------------------------------
 // The drafts typed into the terminal by tools/draft.py (never submitted). Nothing from the log is ever
 // typed except a tool's NAME, and only if it is plain (see toolName); the tool checks the text again.
