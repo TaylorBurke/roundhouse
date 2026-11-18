@@ -84,8 +84,7 @@ function networkItems(sess, key, max) {
     });
     out.sort(function (a, b) { return b.ts - a.ts; });
     return out.slice(0, max || 12);
-=======
-};
+}
 
 // Background tasks of the shell station. `can` only looks at whether sess.tasks has an entry.
 function shellTasks(sess) {
@@ -114,7 +113,6 @@ function taskItems(sess, key, max) {
         return ra !== rb ? ra - rb : b.since - a.since;
     });
     return list.slice(0, max);
->>>>>>> df39528 (Shell: left-click lists background tasks and opens a task's output file)
 }
 
 // The items behind a left click at `key`, at most `max`: [] for a station with no entry or an entry
