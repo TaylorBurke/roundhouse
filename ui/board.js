@@ -7,6 +7,8 @@ var SESSION_IDLE = 1800;   // seconds without an event before a session is dropp
 var ROUTE_KEEP = 7;        // stations the route line joins
 var ROUTE_HOLD = 40;       // seconds a leg stays at full strength ...
 var ROUTE_FADE = 20;       // ... then fades out over this many
+var ASKING = ["permission_prompt", "elicitation_dialog"];   // notification types that wait on the owner
+var SLOW_DEFAULT = 120;    // seconds a call may run before its station is outlined as slow
 var MAX_SEEN = 3000;
 var LABELS = { you: "You", model: "Model", memory: "Memory", files: "Files", shell: "Shell", network: "Network",
                browser: "Browser", agents: "Agents", skills: "Skills", hooks: "Hooks" };
@@ -28,6 +30,7 @@ function newSession(sid) {
         errDots: {},              // station -> errors and refusals since the last prompt (the red dot)
         uses: {},                 // station -> every call seen there this session (wears the spoke)
         route: [],                // stations the main loop visited, newest last: { station, ts }
+        waiting: false,           // a permission ask or question is open: You waits on the owner
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
         entries: [],              // newest last, at most MAX_ENTRIES
         byId: {},                 // tool-use id -> entry still in entries
@@ -163,13 +166,16 @@ function fold(board, ev) {
         sess.endReason = "";
     } else if (kind === "session_end") {
         sess.ended = true;
+        sess.waiting = false;
         sess.endReason = ev.reason || "";
     } else if (kind === "tool_start") {
+        sess.waiting = false;                 // the call went ahead: the ask was answered
         applyTool(sess, ev, false);
     } else if (kind === "tool_end") {
         applyTool(sess, ev, true);
     } else if (kind === "prompt") {
         sess.switched = false;
+        sess.waiting = false;
         sess.errDots = {};
         sess.promptTs = ev.ts;
         // The red dots were just cleared, so the calls behind them stop counting: a late end for
@@ -188,6 +194,7 @@ function fold(board, ev) {
         note(sess, ev, "model", "next step");
     } else if (kind === "stop") {
         closeOpen(sess, ev);
+        sess.waiting = false;
         var listed = {};
         (ev.bg || []).forEach(function (t) { if (t && t.id) listed[t.id] = true; });
         Object.keys(sess.tasks).forEach(function (id) {     // started before this stop, not listed: finished
@@ -198,8 +205,10 @@ function fold(board, ev) {
     } else if (kind === "stop_error") {
         note(sess, ev, "model", "stopped: " + (ev.error || "error"), "err");
     } else if (kind === "ask") {
+        sess.waiting = true;
         note(sess, ev, "hooks", "asked permission: " + (ev.tool || ""));
     } else if (kind === "denied") {
+        sess.waiting = false;
         var denied = ev.id ? sess.byId[ev.id] : null;
         if (denied && denied.status === "running") blockEntry(sess, denied);
         else if (!denied) dot(sess, "hooks", 1);
@@ -235,6 +244,7 @@ function fold(board, ev) {
         sess.tokensStale = false;
         if (ev.model && !sess.switched) sess.model = ev.model;
     } else if (kind === "notify") {
+        if (ASKING.indexOf(ev.type) >= 0) sess.waiting = true;     // idle_prompt and the like are not a question
         note(sess, ev, "you", "notification: " + (ev.type || ""));
     }
     recount(sess);
@@ -326,6 +336,33 @@ function routeLegs(sess, now) {
 function wear(sess, station) {
     var n = sess && sess.uses[station] || 0;
     return Math.min(1, Math.log(1 + n) / Math.log(61));
+}
+
+// A station's share of the session's calls, 0..1 (its uses over all uses), for the faint heat ring.
+function heat(sess, station) {
+    if (!sess) return 0;
+    var total = 0;
+    Object.keys(sess.uses).forEach(function (k) { total += sess.uses[k]; });
+    return total > 0 ? (sess.uses[station] || 0) / total : 0;
+}
+
+// The slow-call setting in seconds: a positive number, else the default. 0 or "off" turns it off (returns 0).
+function parseSlow(value) {
+    if (value === 0 || value === false || /^\s*off\s*$/i.test(String(value))) return 0;
+    var n = typeof value === "number" ? value : parseFloat(value);
+    return n > 0 && isFinite(n) ? n : SLOW_DEFAULT;
+}
+
+// Stations whose own running call (not a background task, which is meant to be long) has run past
+// `threshold` seconds as of `now`: { station: seconds running }. A threshold of 0 means off.
+function slow(sess, now, threshold) {
+    var out = {};
+    if (!sess || !(threshold > 0)) return out;
+    sess.entries.forEach(function (e) {
+        if (e.status !== "running" || e.bg || now - e.ts < threshold) return;
+        out[e.station] = Math.max(out[e.station] || 0, now - e.ts);
+    });
+    return out;
 }
 
 // Stations with a call running: { station: { n, since } }, `since` the start of the oldest.
@@ -562,4 +599,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

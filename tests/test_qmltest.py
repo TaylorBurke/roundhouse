@@ -35,6 +35,9 @@ class QtTestFiles(unittest.TestCase):
     def test_click_qml(self):
         self.run_file("click.test.qml")
 
+    def test_visuals_qml(self):
+        self.run_file("visuals.test.qml")
+
     def test_icons_qml(self):
         self.run_file("icons.test.qml")
 

@@ -22,6 +22,7 @@ Item {
     property color accent: "#e0a458"  // hub outline, running calls, outbound pulses
     property color alert: "#f7768e"   // failed and blocked calls
     property int windowSetting: 0     // context window from the settings file; 0 = guess
+    property real slowSeconds: 120    // a running call older than this outlines its station amber; 0 = off
 
     readonly property var stations: [
         { key: "you", label: "You" }, { key: "model", label: "Model" }, { key: "memory", label: "Memory" },
@@ -176,6 +177,82 @@ Item {
             color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.09)
             border.width: 1; border.color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.26)
         }
+    }
+
+    // ---- extra cues (all behind the stations, none moves anything) -------------------------
+    // usage heat: a faint ring per station, thicker and stronger with its share of the session's calls
+    Repeater {
+        model: root.stations
+        Rectangle {
+            required property int index
+            required property var modelData
+            objectName: "heat_" + modelData.key
+            readonly property real share: root.revision >= 0 ? Board.heat(root.session, modelData.key) : 0
+            z: -1
+            visible: share > 0
+            width: root.discR * 2.5; height: width; radius: width / 2
+            x: root.pos(index).x - width / 2; y: root.pos(index).y - height / 2
+            color: "transparent"
+            border.width: 1 + share * 4
+            border.color: Qt.rgba(root.inkStrong.r, root.inkStrong.g, root.inkStrong.b, 0.10 + share * 0.5)
+        }
+    }
+
+    // slow call: an amber outline on a station whose running call has passed the threshold
+    readonly property color amber: bg.hslLightness > 0.5 ? "#c26a00" : "#ffb347"
+    property real nowSec: Date.now() / 1000
+    Timer { interval: 5000; running: root.slowSeconds > 0; repeat: true; onTriggered: root.nowSec = Date.now() / 1000 }
+    readonly property var slowNow: revision >= 0 ? Board.slow(session, nowSec, slowSeconds) : ({})
+    Repeater {
+        model: root.stations
+        Rectangle {
+            required property int index
+            required property var modelData
+            objectName: "slow_" + modelData.key
+            z: -1
+            visible: root.slowNow[modelData.key] !== undefined
+            width: root.discR * 2.3; height: width; radius: width / 2
+            x: root.pos(index).x - width / 2; y: root.pos(index).y - height / 2
+            color: "transparent"; border.width: 2.5; border.color: root.amber
+        }
+    }
+
+    // waiting on you: You pulses in the accent colour while a permission ask or question is open
+    readonly property bool waitingNow: revision >= 0 && !!session && session.waiting === true
+    Rectangle {
+        id: waitRing
+        objectName: "waiting"
+        z: -1
+        visible: root.waitingNow
+        width: root.discR * 2.6; height: width; radius: width / 2
+        x: root.pos(0).x - width / 2; y: root.pos(0).y - height / 2
+        color: Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.16); border.width: 3; border.color: root.accent
+        SequentialAnimation on scale {
+            running: waitRing.visible; loops: Animation.Infinite
+            NumberAnimation { from: 0.85; to: 1.3; duration: 750; easing.type: Easing.InOutSine }
+            NumberAnimation { from: 1.3; to: 0.85; duration: 750; easing.type: Easing.InOutSine }
+        }
+        SequentialAnimation on opacity {
+            running: waitRing.visible; loops: Animation.Infinite
+            NumberAnimation { from: 1.0; to: 0.35; duration: 750; easing.type: Easing.InOutSine }
+            NumberAnimation { from: 0.35; to: 1.0; duration: 750; easing.type: Easing.InOutSine }
+        }
+    }
+
+    // click feedback: a brief ripple where a station was pressed. The station areas call it for
+    // presses they take; the handler below catches a left press that falls through to the map.
+    property int presses: 0               // ripples shown for presses, for the tests
+    function pressAt(x, y) {
+        var key = stationAt(x, y);
+        if (key === "") return "";
+        presses++;
+        ripple(pos(indexOf(key)), inkStrong, discR * 0.8, discR * 1.7, 380);
+        return key;
+    }
+    TapHandler {
+        acceptedButtons: Qt.LeftButton     // a left press that no station area takes; the areas ripple for the rest
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        onPressedChanged: if (pressed) root.pressAt(point.position.x, point.position.y)
     }
 
     Canvas {
@@ -558,6 +635,7 @@ Item {
             cursorShape: clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
             onEntered: root.hoverKey = modelData.key
             onExited: if (root.hoverKey === modelData.key) root.hoverKey = ""
+            onPressed: root.pressAt(root.pos(index).x, root.pos(index).y)
             onClicked: mouse => {
                 if (mouse.button === Qt.RightButton) root.nodeRightClicked(modelData.key, root.pos(index));
                 else if (clickable) root.nodeClicked(modelData.key, root.pos(index));

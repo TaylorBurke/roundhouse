@@ -458,6 +458,51 @@ QtObject {
         Board.fold(b, ev({ ts: 11, ev: "tool_end", id: "h2", station: "network", label: "127.0.0.1", tool: "WebFetch", status: "ok", ms: 1 }));
         check("facts: localhost and IPv4 count as hosts", Board.report(sess(b), "network", 4, 20).lines.slice(-1), ["hosts: localhost \u00d71, 127.0.0.1 \u00d71"]);
 
+        // waiting on you: ask and the two question notifications open it; prompt, stop, a started call, a denial and the end close it
+        ["prompt", "stop", "tool_start", "denied", "session_end"].forEach(function (closer) {
+            b = Board.newBoard();
+            Board.fold(b, ev({ ts: 1, ev: "ask", tool: "Bash" }));
+            check("ask waits", sess(b).waiting, true);
+            Board.fold(b, ev({ ts: 2, ev: closer, id: "w", station: "shell", label: "x", tool: "Bash", bg: [] }));
+            check("waiting cleared by " + closer, sess(b).waiting, false);
+        });
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "notify", type: "permission_prompt" }));
+        check("permission_prompt waits", sess(b).waiting, true);
+        Board.fold(b, ev({ ts: 2, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 3, ev: "notify", type: "elicitation_dialog" }));
+        check("elicitation_dialog waits", sess(b).waiting, true);
+        Board.fold(b, ev({ ts: 4, ev: "stop", bg: [] }));
+        Board.fold(b, ev({ ts: 5, ev: "notify", type: "idle_prompt" }));
+        check("idle_prompt does not wait", sess(b).waiting, false);
+        Board.fold(b, ev({ ts: 6, ev: "notify", type: "auth_success" }));
+        check("auth_success does not wait", sess(b).waiting, false);
+        Board.fold(b, { sid: "other", ts: 7, ev: "ask", tool: "Bash" });
+        check("waiting is per session", [sess(b).waiting, sess(b, "other").waiting], [false, true]);
+
+        // usage heat: a station's share of the session's calls
+        b = Board.newBoard();
+        check("heat of nothing", [Board.heat(null, "files"), Board.heat(sess(b) || { uses: {} }, "files")], [0, 0]);
+        ["a", "b", "c"].forEach(function (id) { Board.fold(b, ev({ ts: 1, ev: "tool_start", id: id, station: id === "c" ? "shell" : "files", label: "x", tool: "Read" })); });
+        check("heat shares", [Board.heat(sess(b), "files"), Board.heat(sess(b), "shell"), Board.heat(sess(b), "network")], [2 / 3, 1 / 3, 0]);
+        Board.fold(b, ev({ ts: 2, ev: "tool_end", id: "a", station: "files", label: "x", tool: "Read", status: "ok" }));
+        check("heat counts a call once", Board.heat(sess(b), "files"), 2 / 3);
+
+        // slow call: a running call past the threshold, not a background task, not a finished call
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 100, ev: "tool_start", id: "s", station: "shell", label: "x", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 100, ev: "tool_start", id: "f", station: "files", label: "x", tool: "Read" }));
+        Board.fold(b, ev({ ts: 101, ev: "tool_end", id: "f", station: "files", label: "x", tool: "Read", status: "ok" }));
+        Board.fold(b, ev({ ts: 100, ev: "tool_start", id: "g", station: "network", label: "x", tool: "Bash", bg: true }));
+        check("not slow yet", Board.slow(sess(b), 219, 120), {});
+        check("slow at the threshold", Board.slow(sess(b), 220, 120), { shell: 120 });
+        check("a later start does not hide an older slow call", (function () {
+            Board.fold(b, ev({ ts: 300, ev: "tool_start", id: "s2", station: "shell", label: "y", tool: "Bash" }));
+            return Board.slow(sess(b), 310, 120);
+        })(), { shell: 210 });
+        check("slow off", [Board.slow(sess(b), 9999, 0), Board.slow(null, 9999, 120)], [{}, {}]);
+        check("parseSlow", [Board.parseSlow(undefined), Board.parseSlow(30), Board.parseSlow("45"), Board.parseSlow(0), Board.parseSlow("off"), Board.parseSlow(-5), Board.parseSlow("junk")], [120, 30, 45, 0, 0, 120, 120]);
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }
