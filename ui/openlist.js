@@ -2,6 +2,32 @@
 
 // What a click on a map station does, and what happens when the on-disk lookup answers.
 
+// What a left click does at each station that has something to open. A later ticket gives its
+// station an entry here instead of editing a shared switch. An entry says where its names come
+// from (`names`: Board.openables) or that there is always something (`always`), and what the
+// window should do (`action`, for an entry that is not a list of names). A station with no entry
+// reacts to a right click only (its recent calls).
+var HANDLERS = {
+    files: { names: true },
+    memory: { always: true, action: "memory" },     // the project's memory files are there without a call
+    skills: { names: true }
+};
+
+// Whether a left click at `key` leads anywhere: it has an entry, and something to open. `items` is
+// what Board.openables found for it.
+function canOpen(key, items) {
+    var h = HANDLERS[key];
+    return !!h && (!!h.always || (!!items && items.length > 0));
+}
+
+// What a left click at `key` means: its entry's own action, else what onNode makes of its names.
+function onClick(key, items) {
+    var h = HANDLERS[key];
+    if (!h) return { action: "none" };
+    if (h.action) return { action: h.action };
+    return onNode(items);
+}
+
 // The names a station can open (from Board.openables): none, one (look it up and open it), or
 // several (list them to pick from).
 function onNode(items) {
@@ -121,4 +147,32 @@ function parsePaths(text) {
             return parsed.paths.filter(function (p) { return typeof p === "string" && p.charAt(0) === "/"; });
     } catch (e) { }
     return [];
+}
+
+// A span for a row: "340ms", "1.2s", "45s", "3m".
+function durationLabel(ms) {
+    if (ms === undefined || ms === null) return "";
+    if (ms < 1000) return Math.round(ms) + "ms";
+    if (ms < 10000) return (Math.round(ms / 100) / 10) + "s";
+    if (ms < 60000) return Math.round(ms / 1000) + "s";
+    return Math.floor(ms / 60000) + "m";
+}
+
+// How long ago, from `seconds`: "now", "40s", "5m", "2h".
+function ageLabel(seconds) {
+    if (seconds < 10) return "now";
+    if (seconds < 60) return Math.floor(seconds) + "s";
+    if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+    return Math.floor(seconds / 3600) + "h";
+}
+
+// Recent calls (Board.history) as list rows: the name, and beside it the status, how long it took
+// and how long ago it started. A call still running has no duration yet.
+function historyRows(calls, now) {
+    return (calls || []).map(function (c) {
+        var parts = [c.status || "ok"];
+        if (c.status !== "running" && c.ms !== undefined && c.ms !== null) parts.push(durationLabel(c.ms));
+        parts.push(ageLabel(Math.max(0, now - c.ts)));
+        return { text: c.label || "", sub: parts.join(" \u00b7 ") };
+    });
 }

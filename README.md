@@ -183,7 +183,12 @@ What moves and what it means:
   the start without a tool call. Only names are read, and only an existing file in your home folder or
   Claude's scratch folder is ever handed to the editor or viewer (a symlink in a project that points
   outside is refused; skills and plugin folders may link elsewhere, as they usually do); nothing is
-  executed. Other stations are hover-only.
+  executed. Other stations do nothing on a left click yet.
+- **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
+  status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started. A station
+  with no calls yet shows a short note at the bottom of the window instead. The list is a snapshot from
+  the moment of the click; click anywhere else to close it. Names come from the log and show on screen
+  only; nothing is written.
 - **A thin curve** joining the last seven stations visited (a leg holds 40 s, then fades), and
   **spokes that thicken** with use.
 - **A dot circling Agents** per running subagent. A background task keeps its station lit after its

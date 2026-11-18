@@ -421,6 +421,18 @@ function openables(sess, key, max) {
     return out.slice(0, max || 12);
 }
 
+// The recent calls at a station, newest first, at most `max`: { label, status, ms, ts } (`ms` is
+// undefined while a call runs or when none was recorded). Names only: the labels the log carries,
+// shown on screen, never written. Right-click on any station lists these.
+function history(sess, key, max) {
+    if (!sess) return [];
+    var out = [];
+    sess.entries.forEach(function (e) {
+        if (e.station === key) out.push({ label: e.label, status: e.status, ms: e.ms, ts: e.ts });
+    });
+    return out.reverse().slice(0, max || 10);
+}
+
 // How many subagents are running, for the dots that orbit the Agents station.
 function runningAgents(sess) {
     if (!sess) return 0;
@@ -463,4 +475,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, report: report, problems: problems, openables: openables, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

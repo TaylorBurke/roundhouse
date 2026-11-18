@@ -123,6 +123,7 @@ FloatingWindow {
         accent: theme.accent; alert: theme.alert; memory: theme.memory
         listOpen: win.listMode !== ""
         onNodeClicked: (key, anchor) => win.nodeClicked(key, anchor)
+        onNodeRightClicked: (key, anchor) => win.nodeRightClicked(key, anchor)
     }
 
     Item {
@@ -153,7 +154,7 @@ FloatingWindow {
     // files lists those. The log keeps no full paths, so the lookup (tools/openable.py) happens now,
     // under the session's folder; names only are read, and opening only ever hands one existing
     // file in the home folder to the editor.
-    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message
+    property string listMode: ""            // "" closed; "items" names from the map; "paths" files found for one name; "note" a message; "history" recent calls
     property string listKey: ""
     property var listItems: []              // the names (mode "items")
     property var listPaths: []              // the files found (mode "paths")
@@ -172,17 +173,28 @@ FloatingWindow {
     onShownSidChanged: closeList()
 
     function nodeClicked(key, anchor) {
-        if (key === "memory") {                        // the project's memory files, whether or not any was touched
-            listKey = key; listAnchor = anchor; listTitle = "Memory";
-            lookupMemory();
-            return;
-        }
-        var d = OpenList.onNode(Board.openables(session, key, 12));
+        var d = OpenList.onClick(key, Board.openables(session, key, 12));
         if (d.action === "none") return;
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
-        if (d.action === "resolve") lookup(d.item);
+        if (d.action === "memory") lookupMemory();       // whether or not any file was touched
+        else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
+    }
+    // A right click on any station: its recent calls, newest first (names only, from the log), or a
+    // toast when there are none. The rows are a snapshot of the moment of the click.
+    function nodeRightClicked(key, anchor) {
+        var calls = Board.history(session, key, 10);
+        listKey = key; listAnchor = anchor;
+        if (calls.length === 0) {
+            closeList();
+            toast("Nothing at " + Board.report(null, key).title + " yet");
+            return;
+        }
+        lookupSeq++; listItems = []; listPaths = [];
+        listTitle = Board.report(null, key).title + " \u00b7 recent";
+        listRowsView = OpenList.historyRows(calls, now());
+        listMode = "history"; noteTimer.stop();
     }
     function lookup(item) {
         var seq = ++lookupSeq;
@@ -239,6 +251,26 @@ FloatingWindow {
         }
     }
     Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }
+
+    // A short note for "nothing to open" and the like. A new one replaces the one showing.
+    property string toastText: ""
+    function toast(text) { toastText = text; toastTimer.restart(); }
+    Timer { id: toastTimer; interval: 2500; onTriggered: win.toastText = "" }
+    Rectangle {
+        objectName: "toast"
+        z: 110
+        visible: win.toastText !== ""
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 16 }
+        width: Math.min(parent.width - 24, toastLabel.implicitWidth + 24); height: toastLabel.implicitHeight + 14
+        radius: 6; color: Qt.darker(theme.bg, 1.4); border.color: theme.discEdge; border.width: 1
+        Text {
+            id: toastLabel
+            anchors.centerIn: parent; width: parent.width - 24
+            text: win.toastText
+            textFormat: Text.PlainText; wrapMode: Text.Wrap; horizontalAlignment: Text.AlignHCenter
+            color: theme.inkStrong; font.family: "monospace"; font.pixelSize: 11
+        }
+    }
 
     MouseArea {                              // a click anywhere else closes the list
         anchors.fill: parent
