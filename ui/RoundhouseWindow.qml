@@ -204,6 +204,7 @@ FloatingWindow {
         if (d.action === "browser") lookupBrowser();
         else if (d.action === "turn") showTurn();
         else if (d.action === "memory") lookupMemory();       // whether or not any file was touched
+        else if (d.action === "hooks") lookupHooks();         // the configured hooks, read now
         else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
     }
@@ -364,8 +365,22 @@ FloatingWindow {
     function focusBrowser(address) {
         finderC.createObject(win.contentItem, { what: "focus", command: OpenList.browserFocusArgs(Quickshell.shellPath("../tools/browserwin.py"), address) });
     }
+    function lookupHooks() {
+        var seq = ++lookupSeq;
+        lookingFor = "";
+        listNote = "Reading the hooks…"; listRowsView = []; listMode = "note"; noteTimer.stop();
+        finderC.createObject(win.contentItem, { seq: seq, command: OpenList.hooksListArgs(Quickshell.shellPath("../tools/hooklist.py")) });
+    }
+    function foundHooks(text) {
+        var parsed = OpenList.parseHooks(text);
+        if (parsed === null) { closeList(); toast("Could not read hooks"); return; }       // a failed read, not an empty list
+        var r = OpenList.hookRows(parsed, 16);
+        if (r.rows.length === 0) { closeList(); toast("No hooks configured"); return; }
+        listPaths = r.targets; listRowsView = r.rows; listTitle = "Hooks"; listMode = "hooks";
+    }
     function found(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;     // cancelled, or another lookup took over
+        if (listKey === "hooks") { foundHooks(text); return; }
         var d = OpenList.onResolved(OpenList.parsePaths(text));
         if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "choose") {
@@ -387,6 +402,7 @@ FloatingWindow {
         else if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "draft") { closeList(); typeDraft(d.text); }
+        else if (d.action === "hookopen") { openHookFile(d.path); closeList(); }
         else if (d.action === "openhost") { openHost(d.host); closeList(); }
         else if (d.action === "mcp") { closeList(); toast("MCP servers open nothing"); }
         else if (d.action === "refused") { closeList(); toast("Not a plain hostname, not opened"); }
@@ -394,6 +410,9 @@ FloatingWindow {
     function openHost(host) {
         if (!OpenList.isHost(host)) { toast("Not a plain hostname, not opened"); return; }
         Quickshell.execDetached(OpenList.openHostArgs(Quickshell.shellPath("../tools/openhost.py"), host));
+    }
+    function openHookFile(path) {
+        Quickshell.execDetached(OpenList.hooksOpenArgs(Quickshell.shellPath("../tools/hooklist.py"), path));
     }
     function openPath(path) {
         Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);

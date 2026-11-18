@@ -24,6 +24,7 @@ var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
     you: { always: true, action: "you" },           // focuses the terminal; the window offers the drafts
+    hooks: { always: true, action: "hooks" },       // the configured hooks (read at click time), whether or not one fired
     skills: { names: true },
     model: { can: modelCan, action: "turn" },       // the current turn from the transcript, read at the click (ui/turn.js)
     network: { can: networkCan, items: networkItems, list: true },   // hosts (open https://<host>) and MCP servers (history only), always listed
@@ -267,6 +268,7 @@ function pickAction(mode, index, items, paths, wins) {
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
     if (mode === "drafts" && items && typeof items[index] === "string") return { action: "draft", text: items[index] };
     if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
+    if (mode === "hooks" && paths && typeof paths[index] === "string" && paths[index] !== "") return { action: "hookopen", path: paths[index] };
     return { action: "none" };
 }
 
@@ -373,3 +375,78 @@ function onWindows(text) {
 // The command that lists the browser windows, and the one that focuses one (re-checked by the tool).
 function browserListArgs(script) { return ["python3", "-I", script, "list"]; }
 function browserFocusArgs(script, address) { return ["python3", "-I", script, "focus", address]; }
+
+// ---- Hooks: the configured hooks (tools/hooklist.py list), grouped by event -----------------------
+// The commands that list them and open one listed file. One argument each, never a shell.
+function hooksListArgs(script) { return ["python3", "-I", script, "list"]; }
+function hooksOpenArgs(script, path) { return ["python3", "-I", script, "open", path]; }
+
+// The answer of `hooklist.py list`: an array of entries (an empty list is a real "none"), or null for
+// anything else (a failure, {"error": ...}, no output, not JSON). Only the fields the
+// list needs are kept, and only as strings (the tool never sends a command's arguments).
+function parseHooks(text) {
+    try {
+        var parsed = JSON.parse(text);
+        if (!Array.isArray(parsed)) return null;
+        return parsed.filter(function (e) { return e && typeof e === "object" && typeof e.event === "string"; })
+            .map(function (e) {
+                return {
+                    event: e.event,
+                    matcher: typeof e.matcher === "string" ? e.matcher : "",
+                    command: typeof e.command === "string" ? e.command : "",
+                    script: typeof e.script === "string" ? e.script : "",
+                    source: typeof e.source === "string" ? e.source : "",
+                    own: e.own === true
+                };
+            });
+    } catch (e) { }
+    return null;
+}
+
+function baseName(path) {
+    var i = path.lastIndexOf("/");
+    return i >= 0 ? path.slice(i + 1) : path;
+}
+
+// List rows for the entries: an event header, then one row per hook below it (the script's basename,
+// else the program's, with the matcher beside it), and roundhouse's own entries folded into one last
+// row. `targets` lines up with `rows`: the file a click opens (the script, else the file that defines
+// the hook), "" for a header, the own row and a hook with no file. At most `max` rows.
+function hookRows(entries, max) {
+    var rows = [], targets = [], own = [], events = {}, order = [];
+    (entries || []).forEach(function (e) {
+        if (e.own) { own.push(e); return; }
+        if (!events[e.event]) { events[e.event] = []; order.push(e.event); }
+        events[e.event].push(e);
+    });
+    order.sort();
+    var room = max - (own.length > 0 ? 1 : 0) - 1;      // the own row, and one for "... and N more"
+    var cut = 0;
+    function addGroup(ev, list) {
+        rows.push({ text: ev, sub: "" }); targets.push("");
+        list.forEach(function (e) {
+            var name = e.script ? baseName(e.script) : (e.command || "(hook)");
+            rows.push({ text: "  " + name, sub: e.matcher.length > 18 ? e.matcher.slice(0, 17) + "\u2026" : e.matcher });
+            targets.push(e.script || e.source || "");
+        });
+    }
+    // whole groups, greedily: one that does not fit is skipped, a smaller later one may still fit
+    order.forEach(function (ev) {
+        var list = events[ev];
+        if (rows.length + 1 + list.length <= room) addGroup(ev, list);
+        else cut += list.length;
+    });
+    // nothing fit (one huge first event): show as much of the first group as there is room for
+    if (rows.length === 0 && order.length > 0 && room >= 2) {
+        var first = events[order[0]], keep = Math.min(first.length, room - 1);
+        addGroup(order[0], first.slice(0, keep));
+        cut -= keep;
+    }
+    if (cut > 0) { rows.push({ text: "\u2026 and " + cut + " more", sub: "" }); targets.push(""); }
+    if (own.length > 0) {
+        var seen = {};
+        own.forEach(function (e) { seen[e.event] = true; });
+        rows.push({ text: "roundhouse (" + Object.keys(seen).length + " events)", sub: "own" }); targets.push("");
+    }
+    return { rows: rows, targets: targets };
+}
