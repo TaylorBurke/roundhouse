@@ -238,6 +238,13 @@ FloatingWindow {
         var d = OpenList.pickAction(listMode, index, listItems, listPaths);
         if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
+        else if (d.action === "openhost") { openHost(d.host); closeList(); }
+        else if (d.action === "mcp") { closeList(); toast("MCP servers open nothing"); }
+        else if (d.action === "refused") { closeList(); toast("Not a plain hostname, not opened"); }
+    }
+    function openHost(host) {
+        if (!OpenList.isHost(host)) { toast("Not a plain hostname, not opened"); return; }
+        Quickshell.execDetached(OpenList.openHostArgs(Quickshell.shellPath("../tools/openhost.py"), host));
     }
     function openPath(path) {
         Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);

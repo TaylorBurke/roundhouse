@@ -189,7 +189,13 @@ What moves and what it means:
   the start without a tool call. Only names are read, and only an existing file in your home folder or
   Claude's scratch folder is ever handed to the editor or viewer (a symlink in a project that points
   outside is refused; skills and plugin folders may link elsewhere, as they usually do); nothing is
-  executed. Other stations do nothing on a left click yet.
+  executed. **Network** lists the distinct hosts (from web fetches) and MCP servers behind its entries,
+  with counts, newest first. Picking a host opens `https://<host>` in your default browser (host only,
+  never a path); picking an MCP server does nothing. The host passes a strict hostname check (letters,
+  digits, dots and hyphens; no spaces, scheme, port, login or leading `-`; non-ASCII names are not offered,
+  and nothing converts them to punycode; a name of 40 characters or more is skipped as possibly cut
+  short) in the window and again in `tools/openhost.py`, which hands it to `xdg-open` as one
+  argument, never through a shell. Other stations do nothing on a left click yet.
 - **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
   status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started, and the
   subagent's type (`agent` if unknown) for a call a subagent made. It covers the last 80 events of the session, so older calls are gone. A station

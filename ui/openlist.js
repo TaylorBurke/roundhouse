@@ -23,8 +23,63 @@
 var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
-    skills: { names: true }
+    skills: { names: true },
+    network: { can: networkCan, items: networkItems, list: true }   // hosts (open https://<host>) and MCP servers (history only), always listed
 };
+
+// A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
+// digits and hyphens, none starting or ending with a hyphen, ASCII only (a non-ASCII name is simply not
+// offered; nothing converts it to punycode). KEEP IDENTICAL to _HOST in tools/openhost.py (a test checks).
+var HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+function isHost(s) { return typeof s === "string" && s.length <= 253 && HOST_RE.test(s); }
+
+// A label of 40 characters or more may have been cut short by the emitter (host_of caps at 40, with no
+// marker), and a cut label can look like a different valid host, so it is never offered.
+var HOST_CAP = 40;
+var MCP_TOOL = /^mcp__(.+?)__(.+)/;
+
+// What a Network entry is: a host worth opening ({kind:"host", id: the host}), an MCP server
+// ({kind:"mcp", id: the server}), or nothing to list (null). A host is a WebFetch label that is a plain
+// hostname, under the emitter's cap, not an IP literal (the last label has a letter), and from a call
+// that worked (not failed, not refused).
+function classify(e) {
+    if (!e || e.station !== "network") return null;
+    var mcp = MCP_TOOL.exec(e.tool || "");
+    if (mcp) return { kind: "mcp", id: mcp[1] };
+    var l = e.label;
+    if (e.tool !== "WebFetch" || !l || l.length >= HOST_CAP || !isHost(l)) return null;
+    if (!/[A-Za-z]/.test(l.slice(l.lastIndexOf(".") + 1))) return null;
+    if (e.status === "err" || e.status === "blocked" || e.dotted === "block") return null;
+    return { kind: "host", id: l };
+}
+
+// Cheap (in-memory scan, no disk): is there an MCP server or a host in this session's Network entries?
+function networkCan(sess) {
+    return !!sess && !!sess.entries && sess.entries.some(function (e) { return classify(e) !== null; });
+}
+
+// The distinct hosts (a WebFetch label that is a plain hostname) and MCP servers (from the tool name
+// mcp__<server>__<tool>) behind the Network entries, with counts, newest first. Only a host carries
+// `host`, the one thing that may be opened; a server is `kind: "mcp"` and opens nothing.
+function networkItems(sess, key, max) {
+    if (!sess || !sess.entries) return [];
+    var by = {}, out = [];
+    sess.entries.forEach(function (e) {
+        var c = classify(e);
+        if (!c) return;
+        var id = c.kind + ":" + c.id;
+        var it = by[id];
+        if (!it) {
+            it = by[id] = c.kind === "mcp" ? { label: c.id, kind: "mcp", action: "mcp", count: 0, ts: 0 }
+                                           : { label: c.id, kind: "host", action: "openhost", host: c.id, count: 0, ts: 0 };
+            out.push(it);
+        }
+        it.count++;
+        if (e.ts >= it.ts) it.ts = e.ts;
+    });
+    out.sort(function (a, b) { return b.ts - a.ts; });
+    return out.slice(0, max || 12);
+}
 
 // The items behind a left click at `key`, at most `max`: [] for a station with no entry or an entry
 // that is always open. `board` is board.js (this file cannot import it).
@@ -50,17 +105,20 @@ function onClick(key, sess, board) {
     var h = HANDLERS[key];
     if (!h) return { action: "none" };
     if (h.action) return { action: h.action };
-    return onNode(itemsOf(key, sess, board, 12));
+    return onNode(itemsOf(key, sess, board, 12), !!h.list);
 }
 
 // The names a station can open (from Board.openables): none, one (look it up and open it), or
 // several (list them to pick from).
-function onNode(items) {
+function onNode(items, alwaysList) {
     if (!items || items.length === 0) return { action: "none" };
-    if (items.length === 1) return { action: "resolve", item: items[0] };
+    if (items.length === 1 && !alwaysList) return { action: "resolve", item: items[0] };
     return {
         action: "list", items: items,
-        rows: items.map(function (it) { return { text: it.label, sub: it.count > 1 ? "×" + it.count : "" }; })
+        rows: items.map(function (it) {
+            var sub = it.count > 1 ? "×" + it.count : "";
+            return { text: it.label, sub: it.kind === "mcp" ? (sub ? "MCP \u00b7 " + sub : "MCP") : sub };
+        })
     };
 }
 
@@ -144,6 +202,10 @@ function accepts(seq, current, mode) {
 // What a click on row `index` means: look the name up (a list of names), open the file (a list of
 // files), or nothing (the "... and N more" row, or a row that is not there).
 function pickAction(mode, index, items, paths) {
+    // Network rows say what they are (`action` on the item); other stations' items have none.
+    if (mode === "items" && items && items[index] !== undefined && items[index].action === "mcp") return { action: "mcp" };
+    if (mode === "items" && items && items[index] !== undefined && items[index].action === "openhost")
+        return isHost(items[index].host) ? { action: "openhost", host: items[index].host } : { action: "refused" };
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
     if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
     return { action: "none" };
@@ -209,4 +271,10 @@ function historyRows(calls, now) {
         if (c.agent) parts.push(c.agentType || "agent");
         return { text: c.label || "", sub: parts.join(" \u00b7 ") };
     });
+}
+
+// The command that opens a host: python3 tools/openhost.py open HOST. One argument, and the tool
+// validates it again.
+function openHostArgs(script, host) {
+    return ["python3", "-I", script, "open", host];
 }
