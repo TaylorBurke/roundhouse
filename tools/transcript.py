@@ -4,6 +4,7 @@
   transcript.py turn SID [AGENT]      the latest turn: one entry per model call (think time, reasoning, tokens, tools)
   transcript.py context SID [AGENT]   tokens in the context at each model call, and the compactions
   transcript.py path SID [AGENT]      where the transcript (or a subagent's) lives
+  transcript.py open SID [AGENT]      open that transcript in the editor (exit 0 started, 1 not found or not opened)
 
 SID is the 8-character session prefix the map shows; AGENT is a subagent id (a prefix of agent-<id>). The
 transcript is looked for as ~/.claude/projects/<project>/<SID>*.jsonl (the project folder from claude-strip's
@@ -408,7 +409,22 @@ def run(cmd, sid, agent=None):
     return cap(out)
 
 
+def open_transcript(sid, agent=None):
+    """Hand the located transcript (a regular file inside ~/.claude/projects, found here, never given by the
+    caller) to openable.open_file, which validates it again. True if the editor was started."""
+    if not (SID.fullmatch(sid) and (agent is None or AGENT.fullmatch(agent))):
+        raise ValueError("arguments")
+    path, _, _ = locate(sid, agent)
+    return bool(path) and openable.open_file(path)
+
+
 def main(argv):
+    if len(argv) in (2, 3) and argv[0] == "open" and SID.fullmatch(argv[1]) \
+            and (len(argv) == 2 or AGENT.fullmatch(argv[2])):
+        try:
+            return 0 if open_transcript(argv[1], argv[2] if len(argv) == 3 else None) else 1
+        except Exception:
+            return 1
     if len(argv) in (2, 3) and argv[0] in ("turn", "context", "path") and SID.fullmatch(argv[1]) \
             and (len(argv) == 2 or AGENT.fullmatch(argv[2])):
         agent = argv[2] if len(argv) == 3 else None

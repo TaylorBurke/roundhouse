@@ -24,12 +24,19 @@ var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
     skills: { names: true },
+    model: { can: modelCan, action: "turn" },       // the current turn from the transcript, read at the click (ui/turn.js)
     network: { can: networkCan, items: networkItems, list: true },   // hosts (open https://<host>) and MCP servers (history only), always listed
     // a browser window to go to: there is one only if the session used the browser (in memory); which
     // windows exist is asked at the click (tools/browserwin.py)
     browser: { can: function (sess) { var b = sess && sess.stations && sess.stations.browser; return !!b && b.count > 0; },
                action: browserAction }
 };
+
+// Cheap (in memory): Model opens its turn panel once the session has any entry; whether the transcript
+// exists is only learned at the click, which toasts when it does not.
+function modelCan(sess) {
+    return !!sess && typeof sess.sid === "string" && /^[A-Za-z0-9_-]{8}$/.test(sess.sid) && !!sess.entries && sess.entries.length > 0;
+}
 
 // A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
 // digits and hyphens, none starting or ending with a hyphen, ASCII only (a non-ASCII name is simply not

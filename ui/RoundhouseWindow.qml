@@ -4,6 +4,7 @@ import Quickshell.Io
 import "board.js" as Board
 import "follow.js" as Follow
 import "openlist.js" as OpenList
+import "turn.js" as Turn
 
 // One roundhouse window. The all-sessions one (sid "*") has the switcher and follows whichever
 // session is active; any other is fixed to its session, so a terminal and its map belong together.
@@ -171,9 +172,12 @@ FloatingWindow {
     // one: its answer, whenever it arrives, is ignored (so a cancelled click never opens a file, and
     // two clicks in a row never mix their results).
     property int lookupSeq: 0
-    function closeList() { lookupSeq++; listMode = ""; listWins = []; noteTimer.stop(); }
+    function closeList() { lookupSeq++; listMode = ""; listWins = []; noteTimer.stop(); turnView = ({ steps: [], note: "", summary: "" }); }
     onShownSidChanged: { closeList(); clearToast(); }
-    onListModeChanged: if (listMode !== "") clearToast()      // a list and a toast never show together
+    onListModeChanged: {
+        if (listMode !== "") clearToast();      // a list and a toast never show together
+        if (listMode !== "turn") turnView = ({ steps: [], note: "", summary: "" });   // reasoning never outlives its panel
+    }
 
     function nodeClicked(key, anchor) {
         var d = OpenList.onClick(key, session, Board);
@@ -191,6 +195,7 @@ FloatingWindow {
             return;
         }
         if (d.action === "browser") lookupBrowser();
+        else if (d.action === "turn") showTurn();
         else if (d.action === "memory") lookupMemory();       // whether or not any file was touched
         else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
@@ -218,6 +223,32 @@ FloatingWindow {
         var args = OpenList.lookupArgs(Quickshell.shellPath("../tools/openable.py"), listKey, item.label,
                                        strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
         finderC.createObject(win.contentItem, { seq: seq, command: args });
+    }
+    // Model: the current turn, read from the transcript now (tools/transcript.py turn SID; the id is the only
+    // argument). Shown on screen only: nothing of it is kept beyond these properties, which are cleared
+    // when the panel closes. The answer is used only if it is still the current lookup.
+    property var turnView: ({ steps: [], note: "", summary: "" })
+    function showTurn() {
+        if (!Turn.validSid(shownSid)) { closeList(); toast("Transcript not found"); return; }
+        var seq = ++lookupSeq;
+        listNote = "Reading the transcript\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
+        turnC.createObject(win.contentItem, { seq: seq, command: Turn.turnArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
+    }
+    function turnAnswered(seq, text) {
+        if (!OpenList.accepts(seq, lookupSeq, listMode)) return;
+        var t = Turn.parse(text);
+        if (!t.found) {
+            closeList();
+            toast(t.error === "missing" ? "Transcript not found" : t.error === "empty" ? "No turn yet in this session" : "Could not read the transcript");
+            return;
+        }
+        turnView = t; listMode = "turn";
+    }
+    function openTranscript() {
+        var ok = Turn.validSid(shownSid);
+        closeList();
+        if (!ok) { toast("Could not open the transcript"); return; }
+        openJobC.createObject(win.contentItem, { command: Turn.openArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
     }
     function lookupMemory() {
         var seq = ++lookupSeq;
@@ -306,6 +337,36 @@ FloatingWindow {
             Timer { interval: 8000; running: true; onTriggered: proc.running = false }
         }
     }
+    Component {
+        id: turnC
+        Item {
+            id: tjob
+            property int seq: 0
+            property var command: []
+            Process {
+                id: tproc
+                command: tjob.command
+                running: true
+                stdout: StdioCollector { onStreamFinished: { win.turnAnswered(tjob.seq, text); tjob.destroy(); } }
+            }
+            Timer { interval: 8000; running: true; onTriggered: tproc.running = false }
+        }
+    }
+    // `transcript.py open SID` as a job, so a failed open (exit not 0) is told, not silent
+    Component {
+        id: openJobC
+        Item {
+            id: ojob
+            property var command: []
+            Process {
+                id: oproc
+                command: ojob.command
+                running: true
+                onExited: (code, status) => { if (code !== 0) win.toast("Could not open the transcript"); ojob.destroy(); }
+            }
+            Timer { interval: 8000; running: true; onTriggered: oproc.running = false }
+        }
+    }
     Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }
 
     // A short note for "nothing to open" and the like. A new one replaces the one showing.
@@ -344,7 +405,7 @@ FloatingWindow {
     OpenList {
         id: openList
         z: 100
-        visible: win.listMode !== ""
+        visible: win.listMode !== "" && win.listMode !== "turn"
         title: win.listTitle
         rows: win.listRowsView
         message: win.listMode === "note" ? win.listNote : ""
@@ -355,6 +416,20 @@ FloatingWindow {
         x: Math.max(8, Math.min(parent.width - width - 8, at.x - width / 2))
         y: Math.max(4, Math.min(parent.height - height - 4, win.listAnchor.y < map.height * 0.45 ? at.y + map.discR * 2.7 : at.y - map.discR * 1.7 - height))
         onPicked: index => win.picked(index)
+    }
+
+    TurnPanel {
+        id: turnPanel
+        z: 100
+        visible: win.listMode === "turn"
+        summary: win.turnView.summary
+        note: win.turnView.note
+        steps: win.turnView.steps
+        maxHeight: parent.height - 16
+        bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; edge: theme.discEdge
+        x: (parent.width - width) / 2
+        y: Math.max(8, (parent.height - height) / 2)
+        onOpenRaw: win.openTranscript()
     }
 
     Feed {

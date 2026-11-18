@@ -38,6 +38,9 @@ class QtTestFiles(unittest.TestCase):
     def test_visuals_qml(self):
         self.run_file("visuals.test.qml")
 
+    def test_turn_qml(self):
+        self.run_file("turn.test.qml")
+
     def test_icons_qml(self):
         self.run_file("icons.test.qml")
 
