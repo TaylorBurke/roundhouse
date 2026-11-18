@@ -88,10 +88,25 @@ class DraftTool(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, "pwned")))
 
     def test_control_characters_and_line_breaks_are_refused(self):
-        for text in ("a\nb", "a\rb", "a\x1bb", "a\tb", "a\x7fb", "a\x85b", "a\u2028b", "a\u2029b", "\n", "tail\n"):
+        for text in ("a\nb", "a\rb", "a\x1bb", "a\tb", "a\x7fb", "a\x85b", "a\u2028b", "a\u2029b", "\n", "tail\n",
+                     "a\u202eb", "a\u200bb", "a\ufeffb", "a\ue000b", "a\u2066b"):    # bidi override, zero-width, BOM, private use, isolate
             r = self.run_tool("type", ADDR, text)
             self.assertEqual(r.returncode, 1, repr(text))
             self.assertIn("not typed", r.stderr)
+        self.assertEqual(self.log("wtype.log"), [])
+
+    def test_emoji_and_other_text_is_accepted_and_counted_in_code_points(self):
+        self.assertEqual(self.run_tool("type", ADDR, "ok \U0001f600 é中").returncode, 0)
+        self.assertEqual(self.run_tool("type", ADDR, "\U0001f600" * 300).returncode, 0)
+        self.assertEqual(self.run_tool("type", ADDR, "\U0001f600" * 301).returncode, 1)
+
+    def test_the_active_window_is_checked_again_right_before_typing(self):
+        # the first look says the terminal, every later one says another window
+        self.fake("hyprctl", HYPRCTL.replace('if [ "$1" = activewindow ]; then',
+                                             'if [ "$1" = activewindow ]; then n=$(cat "$FAKE_DIR/n" 2>/dev/null || echo 0); echo $((n+1)) > "$FAKE_DIR/n"; [ $n -ge 1 ] && echo 0x999 > "$FAKE_DIR/active"; '))
+        r = self.run_tool("type", ADDR, "continue")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("changed", r.stderr)
         self.assertEqual(self.log("wtype.log"), [])
 
     def test_empty_and_too_long_are_refused(self):

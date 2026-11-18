@@ -5,9 +5,10 @@
 
 This is keystroke injection, so it is kept small and refuses by default:
   1. ADDRESS must look like a Hyprland window address (0x, then lower-case hex);
-  2. TEXT must be 1-300 characters with no control characters or line breaks;
+  2. TEXT must be 1-300 characters (code points) with no control, format (bidi, zero-width), private-use
+     or line-break characters;
   3. the window is focused, and `hyprctl activewindow` must then report exactly ADDRESS (checked for
-     up to a second); otherwise nothing is typed;
+     up to a second) and once more right before typing; otherwise nothing is typed;
   4. the typing is `wtype -- TEXT` run with a list of arguments, never through a shell.
 A refusal prints one line to stderr and exits non-zero; success prints nothing.
 
@@ -24,7 +25,7 @@ import unicodedata
 ADDRESS = re.compile(r"0x[0-9a-f]+")
 MAX_TEXT = 300
 FOCUS_WAIT = 1.0          # seconds to wait for the focus to land
-BAD_CATEGORIES = ("Cc", "Cs", "Zl", "Zp")      # control, surrogate, line and paragraph separators
+BAD_CATEGORIES = ("Cc", "Cf", "Co", "Cs", "Zl", "Zp")   # control, format (bidi, zero-width), private use, surrogate, line and paragraph separators
 
 
 def bad_text(text):
@@ -34,7 +35,7 @@ def bad_text(text):
     if len(text) > MAX_TEXT:
         return "draft longer than %d characters" % MAX_TEXT
     if any(unicodedata.category(c) in BAD_CATEGORIES for c in text):
-        return "draft contains a control character or a line break"
+        return "draft contains a control, format or other invisible character"
     return None
 
 
@@ -72,6 +73,8 @@ def type_draft(address, text):
     try:
         if not focus_lands(address):
             return "the terminal did not take the focus; nothing typed"
+        if active_address() != address:        # the last look, right before typing
+            return "the active window changed; nothing typed"
         done = subprocess.run(["wtype", "--", text], capture_output=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return "could not run hyprctl or wtype"

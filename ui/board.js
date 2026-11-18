@@ -611,25 +611,32 @@ function feedRows(sess, max) {
 
 if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
 // ---- draft prompts (a left click on You) ------------------------------------------------------
-// The drafts typed into the terminal by tools/draft.py (never submitted). Names only: a call's label
-// is cleaned here and the tool checks the text again.
-var DRAFT_MAX = 300;                 // what tools/draft.py accepts
-var DRAFT_LABEL_MAX = 60;
+// The drafts typed into the terminal by tools/draft.py (never submitted). Nothing from the log is ever
+// typed except a tool's NAME, and only if it is plain (see toolName); the tool checks the text again.
+var DRAFT_MAX = 300;                 // characters (code points), as tools/draft.py counts them
 var DRAFT_LIMIT = 8;
 var CANNED_DRAFTS = ["Summarize what you did so far", "What are the next steps?"];
-var DRAFT_BAD = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]/;
+// The QML engine has no \p{..}, so the categories tools/draft.py refuses (control, format such as bidi
+// overrides and zero-width, private use, surrogates, line and paragraph separators) are listed here; the
+// tool is the authority and checks again. Emoji (surrogate pairs) pass; supplementary private use and tags do not.
+var DRAFT_BAD_PAIR = /[\udb80-\udbff][\udc00-\udfff]|\udb40[\udc01\udc20-\udc7f]/;
+var DRAFT_BAD = /[\u0000-\u001f\u007f-\u009f\u00ad\u0600-\u0605\u061c\u06dd\u070f\u0890\u0891\u08e2\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ue000-\uf8ff\ufeff\ufff9-\ufffb\ud800-\udfff]/;
+var TOOL_NAME = /^[A-Za-z0-9_-]{1,40}$/;
 
-// A name for a draft: control characters and line breaks turned into spaces, spaces collapsed, cut to
-// DRAFT_LABEL_MAX characters.
-function draftLabel(label) {
-    var t = String(label === undefined || label === null ? "" : label)
-        .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\ud800-\udfff]/g, " ").replace(/\s+/g, " ").replace(/^ | $/g, "");
-    return t.length > DRAFT_LABEL_MAX ? t.slice(0, DRAFT_LABEL_MAX - 1) + "…" : t;
+// The tool's name for "Why did the X call fail?", or "that call" when it is not a plain name.
+function toolName(e) {
+    return e && typeof e.tool === "string" && TOOL_NAME.test(e.tool) ? "the " + e.tool + " call" : "that call";
 }
 
-// A draft is typed only if it is a non-empty string of at most DRAFT_MAX characters with no control character.
+// A draft is typed only if it is a non-empty string of at most DRAFT_MAX characters (code points) with
+// none of the characters above.
 function validDraft(text) {
-    return typeof text === "string" && text.trim() !== "" && text.length <= DRAFT_MAX && !DRAFT_BAD.test(text);
+    return typeof text === "string" && text.trim() !== "" && validChars(text);
+}
+function validChars(text) {
+    if (DRAFT_BAD_PAIR.test(text)) return false;
+    var cps = text.replace(/[\ud800-\udbff][\udc00-\udfff]/g, "x");     // one per code point
+    return cps.length <= DRAFT_MAX && !DRAFT_BAD.test(cps);
 }
 
 // config.json -> { enabled, prompts }: `drafts: false` turns drafts off; `draftPrompts` (an array of
@@ -661,11 +668,11 @@ function drafts(sess, enabled, canned) {
     var since = sess.promptTs || 0, failed = null, blocked = false;
     sess.entries.forEach(function (e) {
         if (e.ts < since || e.station === "you") return;
-        if (e.status === "err" && draftLabel(e.label)) failed = e;
+        if (e.status === "err") failed = e;
         else if (e.status === "blocked") blocked = true;
     });
     var out = [];
-    if (failed) out.push("Why did " + draftLabel(failed.label) + " fail?");
+    if (failed) out.push("Why did " + toolName(failed) + " fail?");
     if (blocked) out.push("What are you waiting on?");
     if (!failed && !blocked) out.push("continue");
     (canned || CANNED_DRAFTS).forEach(function (t) { if (validDraft(t) && out.indexOf(t) < 0) out.push(t); });

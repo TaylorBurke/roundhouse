@@ -64,7 +64,11 @@ FloatingWindow {
 
     Connections {
         target: win.tail
-        function onLive(ev, blocked) { if (ev.sid === win.shownSid) map.handle(ev, blocked); }
+        function onLive(ev, blocked) {
+            if (ev.sid !== win.shownSid) return;
+            map.handle(ev, blocked);
+            if (win.listMode === "drafts") win.closeList();      // the session moved on: a stale draft list is not offered
+        }
     }
 
     // keyboard (all-sessions window): [ ] or the arrow keys step through sessions, space shows the
@@ -203,36 +207,41 @@ FloatingWindow {
         else if (d.action === "resolve") lookup(d.item);
         else { lookupSeq++; listItems = d.items; listRowsView = d.rows; listMode = "items"; noteTimer.stop(); }
     }
-    // A left click on You: focus the terminal and, if the session is idle, list drafts to type there.
-    // A pick runs tools/draft.py, which focuses the terminal again, checks it is the active window and
-    // types the text without pressing Enter (the owner reviews and submits). It says why on a refusal.
+    // A left click on You: with drafts to offer (idle session, drafts on) it lists them and leaves the
+    // focus alone (the list is in this window); otherwise it focuses the terminal. A pick runs
+    // tools/draft.py, which focuses the terminal, checks it is the active window and types the text
+    // without pressing Enter (the owner reviews and submits). It says why on a refusal.
     function youClicked(anchor) {
         var y = OpenList.onYou(strip, session, settings, Board);
         closeList();
         if (!y.address) { toast(y.toast); return; }
         clearToast();
-        focusTerminal(y.address);
-        if (y.drafts.length === 0) return;
+        if (y.drafts.length === 0) { focusTerminal(y.address); return; }
         listKey = "you"; listAnchor = anchor; listTitle = "Draft";
         lookupSeq++; listItems = y.drafts; listPaths = [];
         listRowsView = y.drafts.map(function (t) { return { text: t, sub: "" }; });
         listMode = "drafts"; noteTimer.stop();
     }
+    property bool drafting: false           // draft.py is running: another pick is ignored
     function typeDraft(text) {
         var a = OpenList.terminalAddress(strip);
-        if (a) draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
+        if (drafting || !a) return;
+        if (!Board.isIdle(session)) { toast("Claude is busy; not typing"); return; }     // checked again at the pick
+        drafting = true;
+        draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
     }
     Component {
         id: draftC
         Item {
             id: job
             property var command: []
+            Component.onDestruction: win.drafting = false
             Process {
                 command: job.command
                 running: true
                 stderr: StdioCollector { onStreamFinished: { if (text.trim() !== "") win.toast(text.trim()); job.destroy(); } }
             }
-            Timer { interval: 8000; running: true; onTriggered: job.destroy() }
+            Timer { interval: 20000; running: true; onTriggered: job.destroy() }     // longer than the tool's own limits
         }
     }
     // A right click on any station: its recent calls, newest first (names only, from the log), or a
