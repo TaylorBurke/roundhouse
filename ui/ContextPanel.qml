@@ -69,7 +69,7 @@ Rectangle {
             textFormat: Text.PlainText
             color: root.inkStrong; font.family: "monospace"; font.pixelSize: 11
             text: "now " + Panel.tok(root.now) + (root.windowSize > 0 ? " of " + Panel.tok(root.windowSize) : "")
-                  + "  ·  peak " + Panel.tok(root.info.peak) + "  ·  " + root.info.count + " calls"
+                  + "  ·  peak " + Panel.tok(root.info.peak) + (root.info.count !== null && root.info.count !== undefined ? "  ·  " + root.info.count + " model calls" : "")
         }
         Text {
             objectName: "caveat"

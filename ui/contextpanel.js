@@ -12,21 +12,23 @@ function canClickHub(sess) {
     return !!sess && (!!sess.hasContext || (!!sess.entries && sess.entries.length > 0));
 }
 
+function valid(v) { return typeof v === "number" && isFinite(v) && v >= 0; }
 function num(v) { return typeof v === "number" && isFinite(v) && v >= 0 ? v : 0; }
 
-// The tool's answer as one object: { found, points: [tokens_in...], peak, count, compactions, partial,
+// The tool's answer as one object: { found, points: [valid tokens_in...], peak, count (model calls; null if absent), compactions, partial,
 // capped, ambiguous }. Anything that is not the expected JSON is { found: false }.
 function parse(text) {
     var j;
     try { j = JSON.parse(text); } catch (e) { return { found: false }; }
     if (!j || typeof j !== "object" || !j.found || !j.context || typeof j.context !== "object") return { found: false };
     var c = j.context;
-    var pts = Array.isArray(c.points) ? c.points.map(function (p) { return num(p && p.tokens_in); }) : [];
+    // a point with no usable tokens_in is dropped, never turned into a 0 (that would draw a false dip)
+    var pts = Array.isArray(c.points) ? c.points.filter(function (p) { return p && valid(p.tokens_in); }).map(function (p) { return p.tokens_in; }) : [];
     var comps = Array.isArray(c.compactions) ? c.compactions.filter(function (k) { return k && typeof k === "object"; }).map(function (k) {
         return { ts: typeof k.ts === "string" ? k.ts : "", trigger: typeof k.trigger === "string" ? k.trigger : "",
                  pre: num(k.pre_tokens), post: num(k.post_tokens) };
     }) : [];
-    return { found: true, points: pts, peak: num(c.peak), count: num(c.point_count) || pts.length, compactions: comps,
+    return { found: true, points: pts, peak: num(c.peak), count: valid(c.point_count) ? c.point_count : null, compactions: comps,
              partial: !!c.partial, capped: !!j.capped, ambiguous: !!j.ambiguous };
 }
 

@@ -71,6 +71,7 @@ FloatingWindow {
     // list (1-9 pick from it), a follows the most recently active, w opens the session in a window
     // of its own, escape closes the list
     Item {
+        id: keys
         anchors.fill: parent
         focus: true
         Keys.onPressed: event => {
@@ -222,7 +223,10 @@ FloatingWindow {
     // by a short-lived process like the file lookups; nothing found is a toast, never an empty panel.
     property bool ctxOpen: false
     property var ctxInfo: ({ found: false })
+    property bool ctxBusy: false             // a transcript read is running: a second click waits for it
     function hubClicked() {
+        if (ctxBusy) return;
+        ctxBusy = true;
         var seq = ++lookupSeq;
         listMode = ""; ctxOpen = false; noteTimer.stop(); clearToast();
         ctxC.createObject(win.contentItem, { seq: seq, command: CtxPanel.args(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
@@ -231,7 +235,7 @@ FloatingWindow {
         if (seq !== lookupSeq || listMode !== "") return;       // closed, or another click took over
         var d = CtxPanel.parse(text);
         if (!d.found) { ctxOpen = false; toast("No transcript found for this session"); return; }
-        clearToast(); ctxInfo = d; ctxOpen = true;
+        clearToast(); ctxInfo = d; ctxOpen = true; keys.forceActiveFocus();
     }
     Component {
         id: ctxC
@@ -239,13 +243,14 @@ FloatingWindow {
             id: ctxJob
             property int seq: 0
             property var command: []
+            Component.onDestruction: win.ctxBusy = false
             Process {
                 id: ctxProc
                 command: ctxJob.command
                 running: true
                 stdout: StdioCollector { onStreamFinished: { win.ctxAnswer(ctxJob.seq, text); ctxJob.destroy(); } }
             }
-            Timer { interval: 8000; running: true; onTriggered: ctxProc.running = false }
+            Timer { interval: 8000; running: true; onTriggered: { ctxProc.running = false; ctxJob.destroy(); } }
         }
     }
     function lookup(item) {

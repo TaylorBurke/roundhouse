@@ -93,6 +93,21 @@ Item {
             compare(d.compactions[0].pre, 168000);
             compare(d.partial, false); compare(d.capped, false); compare(d.ambiguous, false);
         }
+        function test_count_absent_is_null_and_omitted() {
+            var d = Panel.parse('{"found":true,"context":{"points":[{"tokens_in":5},{"tokens_in":9}],"peak":9}}');
+            compare(d.count, null);
+            panel.info = d;
+            compare(findChild(panel, "summary").text.indexOf("calls"), -1);
+        }
+        function test_bad_last_point_does_not_zero_now() {
+            var d = Panel.parse('{"found":true,"context":{"points":[{"tokens_in":5000},{"tokens_in":9000},{"tokens_in":null}],"peak":9000,"point_count":3}}');
+            compare(d.points.join(","), "5000,9000");
+            panel.reading = 0;
+            panel.info = d;
+            compare(panel.now, 9000);
+            compare(findChild(panel, "summary").text, "now 9k of 200k  ·  peak 9k  ·  3 model calls");
+            panel.reading = 98000;
+        }
         function test_parse_flags() {
             var d = Panel.parse(canned({ partial: true, capped: true, ambiguous: true }));
             compare(d.partial, true); compare(d.capped, true); compare(d.ambiguous, true);
@@ -108,7 +123,7 @@ Item {
         function test_parse_survives_odd_values() {
             var d = Panel.parse('{"found":true,"context":{"points":[{"tokens_in":"x"},null,{"tokens_in":-5},{"tokens_in":7}],"peak":"big","compactions":[1,{"ts":3}]}}');
             compare(d.found, true);
-            compare(d.points.join(","), "0,0,0,7");
+            compare(d.points.join(","), "7");          // invalid points are dropped, not zeroed
             compare(d.peak, 0);
             compare(d.compactions.length, 1);
             compare(d.compactions[0].ts, "");
@@ -159,7 +174,7 @@ Item {
         function test_panel_shows_numbers_and_compactions() {
             panel.info = Panel.parse(canned({}));
             compare(panel.spark.length, 60);
-            compare(findChild(panel, "summary").text, "now 98k of 200k  ·  peak 200k  ·  200 calls");
+            compare(findChild(panel, "summary").text, "now 98k of 200k  ·  peak 200k  ·  200 model calls");
             compare(findChild(panel, "caveat").visible, false);
             compare(panel.rows.length, 2);
             compare(findChild(panel, "compactionsTitle").text, "compactions");
