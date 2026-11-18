@@ -1,5 +1,7 @@
 """tools/transcript.py: reading a transcript at click time. Everything runs in a temporary fake home."""
+import contextlib
 import importlib.machinery
+import io
 import importlib.util
 import json
 import os
@@ -254,6 +256,150 @@ class Finding(World):
             transcript.MAX_FILE, transcript.TAIL = saved
 
 
+class Hardening(World):
+    def test_cap_terminates_on_one_oversized_entry(self):
+        for key, body in (("turn", {"steps": [{"thinking": None, "ts": "x" * 200000}]}),
+                          ("context", {"points": [{"ts": "x" * 200000}], "compactions": [{"ts": "y" * 200000}]})):
+            out = transcript.cap({key: body})
+            self.assertTrue(out["capped"])
+            self.assertLessEqual(len(json.dumps(out)), transcript.MAX_OUTPUT)
+
+    def test_strings_from_the_transcript_are_bounded(self):
+        rec = call("m1", [tool("a")])[0]
+        rec["timestamp"] = "t" * 100000
+        self.session([prompt(), rec])
+        step = transcript.run("turn", SID)["turn"]["steps"][0]
+        self.assertEqual(len(step["ts"]), transcript.MAX_TS)
+
+    def test_nan_and_infinity_are_not_numbers(self):
+        for v in (float("nan"), float("inf"), float("-inf")):
+            self.assertEqual(transcript.num(v), 0)
+        raw = ('{"type":"assistant","message":{"id":"m","content":[{"type":"thinking","thinking":""}],'
+               '"usage":{"output_tokens":NaN,"input_tokens":Infinity}},"thinkingDurationMs":Infinity}')
+        end = '{"type":"system","subtype":"turn_duration","durationMs":NaN}'
+        self.session([prompt()], raw=[raw, end])
+        t = transcript.run("turn", SID)["turn"]
+        self.assertEqual((t["steps"][0]["think_ms"], t["steps"][0]["tokens_out"], t["duration_ms"]), (0, 0, 0))
+
+    def test_interrupted_prompt_does_not_start_a_turn(self):
+        interrupted = [prompt("[Request interrupted by user]"),
+                       {"type": "user", "message": {"role": "user", "content": [
+                           {"type": "text", "text": "[Request interrupted by user for tool use]"}]}}]
+        for rec in interrupted:
+            self.assertFalse(transcript.is_prompt(rec))
+            self.session([prompt("real"), *call("m1", [tool("Read")]), rec])
+            self.assertEqual(transcript.run("turn", SID)["turn"]["step_count"], 1)
+        self.assertTrue(transcript.is_prompt(prompt("[Request] fine")))
+
+    def test_missing_message_ids_do_not_merge(self):
+        recs = []
+        for i, name in enumerate(("A", "B", "C")):
+            recs.append({"type": "assistant", "timestamp": f"t{i}",
+                         "message": {"role": "assistant", "content": [tool(name)]}})
+        self.session([prompt(), *recs])
+        t = transcript.run("turn", SID)["turn"]
+        self.assertEqual([s["tools"] for s in t["steps"]], [["A"], ["B"], ["C"]])
+
+    def test_zero_usage_does_not_erase_real_counts(self):
+        a = call("m1", [tool("a")], out=40)[0]
+        b = call("m1", [tool("b")], tin=0, cache=0, out=0)[0]
+        b["message"]["usage"]["cache_creation_input_tokens"] = 0
+        self.session([prompt(), a, b])
+        step = transcript.run("turn", SID)["turn"]["steps"][0]
+        self.assertEqual((step["tokens_in"], step["tokens_out"]), (107, 40))
+        self.assertEqual(step["tools"], ["a", "b"])
+
+    def test_deep_nesting_is_skipped_and_never_a_traceback(self):
+        deep = "[" * 100000 + "]" * 100000
+        self.session([prompt(), *call("m1", [tool("a")])], raw=[deep, '{"a":' * 50000 + "1" + "}" * 50000])
+        self.assertEqual(transcript.run("turn", SID)["turn"]["step_count"], 1)
+
+    def test_overlong_lines_are_skipped_without_losing_the_next(self):
+        saved = transcript.MAX_LINE
+        transcript.MAX_LINE = 1000
+        try:
+            self.session([prompt()], raw=['{"x":"' + "z" * 5000 + '"}'])
+            with open(self.main, "a") as f:
+                for r in call("m1", [tool("a")]):
+                    f.write(json.dumps(r) + "\n")
+            self.assertEqual(transcript.run("turn", SID)["turn"]["step_count"], 1)
+        finally:
+            transcript.MAX_LINE = saved
+
+    def test_a_tail_read_never_drops_a_line_at_the_seek_point(self):
+        saved = (transcript.MAX_FILE, transcript.TAIL)
+        try:
+            recs = [prompt()]
+            for i in range(10):
+                recs += call(f"m{i}", [tool("a")])
+            self.session(recs)
+            with open(self.main, "rb") as f:
+                lines = f.read().split(b"\n")[:-1]
+            size = os.path.getsize(self.main)
+            for k in range(1, len(lines)):          # the seek lands exactly on the start of line k
+                transcript.MAX_FILE = size - 1
+                transcript.TAIL = sum(len(x) + 1 for x in lines[k:])
+                gen, truncated = transcript.records(self.main)
+                self.assertTrue(truncated)
+                self.assertEqual(len(list(gen)), len(lines) - k, k)
+        finally:
+            transcript.MAX_FILE, transcript.TAIL = saved
+
+    def test_a_truncated_read_is_not_authoritative_unless_the_prompt_was_seen(self):
+        saved = (transcript.MAX_FILE, transcript.TAIL)
+        transcript.MAX_FILE, transcript.TAIL = 2000, 1500
+        try:
+            recs = [prompt()]
+            for i in range(40):
+                recs += call(f"m{i}", [tool("a")])
+            self.session(recs)
+            t = transcript.run("turn", SID)["turn"]
+            self.assertTrue(t["partial"])
+            self.assertFalse(t["totals"]["exact"])
+            self.assertTrue(transcript.run("context", SID)["context"]["partial"])
+            self.session(recs + [prompt("last"), *call("z", [tool("b")])])
+            t = transcript.run("turn", SID)["turn"]
+            self.assertEqual((t["partial"], t["totals"]["exact"], t["step_count"]), (False, True, 1))
+        finally:
+            transcript.MAX_FILE, transcript.TAIL = saved
+
+    def test_subagents_are_not_listed_unless_asked(self):
+        self.session([prompt(), *call("m1", [tool("a")])])
+        write(os.path.join(self.proj, FULL, "subagents", "agent-a1.jsonl"), [prompt("p")])
+        calls = []
+        real = transcript.agents_of
+        transcript.agents_of = lambda *a, **k: calls.append(a) or real(*a, **k)
+        try:
+            transcript.run("turn", SID)
+            transcript.run("context", SID)
+            self.assertEqual(calls, [])
+            transcript.run("path", SID)
+            self.assertEqual(len(calls), 1)
+        finally:
+            transcript.agents_of = real
+
+    def test_an_sid_collision_is_flagged(self):
+        self.session([prompt()])
+        write(os.path.join(self.proj, SID + "-ffff-4000-8000-000000000000.jsonl"), [prompt()])
+        self.assertTrue(transcript.run("path", SID)["ambiguous"])
+
+    def test_bad_arguments_raise_before_any_work(self):
+        for args in (("turn", "short"), ("nope", SID), ("turn", SID, "../x"), ("turn", SID, "")):
+            with self.assertRaises(ValueError):
+                transcript.run(*args)
+
+    def test_main_never_tracebacks(self):
+        self.session([prompt()])
+        saved = transcript.run
+        transcript.run = lambda *a: (_ for _ in ()).throw(RecursionError())
+        try:
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                self.assertEqual(transcript.main(["turn", SID]), 0)
+            self.assertEqual(json.loads(out.getvalue())["error"], "unreadable")
+        finally:
+            transcript.run = saved
+
+
 class Cli(World):
     def run_cli(self, *args):
         env = dict(os.environ, HOME=self.home)
@@ -271,6 +417,14 @@ class Cli(World):
         p = self.run_cli("path", SID)
         self.assertEqual(p.returncode, 0)
         self.assertFalse(json.loads(p.stdout)["found"])
+
+    def test_nan_and_deep_lines_exit_zero(self):
+        raw = ['{"type":"system","subtype":"turn_duration","durationMs":NaN}', "[" * 200000]
+        self.session([prompt(), *call("m1", [tool("Read")])], raw=raw)
+        for cmd in ("turn", "context"):
+            p = self.run_cli(cmd, SID)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertNotIn("Traceback", p.stderr)
 
     def test_bad_arguments_exit_two(self):
         for args in ([], ["turn"], ["turn", "short"], ["nope", SID], ["path", SID, "../x"], ["turn", SID, "a", "b"]):

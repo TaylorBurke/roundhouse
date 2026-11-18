@@ -454,7 +454,7 @@ python3 -m unittest discover -s tests
 
 Covers the emitter, the board logic and the theme (QML run under `qml6`),
 the switcher and session header (clicks through Qt's input system, under `qmltestrunner`), the window
-list, the strip reader, the transcript reader (`tools/transcript.py`, read-only, fake home and fixture transcripts), and the installer (including an exact install-then-uninstall round trip).
+list, the strip reader, the transcript reader (`tools/transcript.py`, read-only, fake home and fixture transcripts: huge or NaN/deeply nested lines, tail reads, interrupted prompts), and the installer (including an exact install-then-uninstall round trip).
 The terminal log viewer (`bin/lot-map-log`) has no tests of its own. A real mouse on a real Wayland window is not covered: the clicks are tested in Qt, the rest of the
 window by hand with scripted events.
 
