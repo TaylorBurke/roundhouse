@@ -129,7 +129,8 @@ Item {
             compare(lit("files"), true);
             compare(lit("skills"), true);
             compare(lit("you"), true);                       // always: it focuses the terminal
-            ["shell", "network", "browser", "agents", "hooks"].forEach(function (k) { compare(lit(k), false, k); });
+            compare(lit("hooks"), true);                      // always, like memory
+            ["shell", "network", "browser", "agents"].forEach(function (k) { compare(lit(k), false, k); });
         }
         function test_the_backlight_is_a_quiet_ring_not_the_busy_glow() {
             read("a", "files", "src/app.ts");
@@ -195,7 +196,7 @@ Item {
         function test_other_stations_never_react_even_with_calls_behind_them() {
             read("sh", "shell", "build it", "Bash");
             read("n", "network", "web search", "WebSearch");               // Network reacts only to hosts and MCP servers
-            ["shell", "network", "agents", "hooks"].forEach(function (k) {
+            ["shell", "network", "agents"].forEach(function (k) {
                 compare(area(k).cursorShape, Qt.ArrowCursor, k);
                 mouseClick(map, station(k).x, station(k).y);
             });
@@ -273,7 +274,7 @@ Item {
             verify(OpenList.canOpen("memory", sess, spy));                    // always
             compare(spy.calls, 0);                                           // and no names were computed for it
             verify(OpenList.canOpen("you", sess, spy));                      // always: it focuses the terminal
-            ["model", "shell", "network", "agents", "hooks", "hub", "nope"].forEach(function (k) {
+            ["model", "shell", "network", "agents", "hub", "nope"].forEach(function (k) {
                 verify(!OpenList.canOpen(k, sess, spy), k);                  // no entry: nothing to open, even with names
             });
             compare(spy.calls, 0);                                           // no names computed for a key with no entry
@@ -284,48 +285,120 @@ Item {
             verify(!OpenList.canOpen("files", sess, none));
             verify(!OpenList.canOpen("files", null, { openables: function () { return []; } }));
         }
+        function test_hooks_is_always_clickable_like_memory() {
+            compare(area("hooks").cursorShape, Qt.PointingHandCursor);
+            mouseClick(map, station("hooks").x, station("hooks").y);
+            compare(clicks.count, 1);
+            compare(clicks.signalArguments[0][0], "hooks");
+            var spy = { openables: function () { throw new Error("must not be asked"); } };
+            verify(OpenList.canOpen("hooks", {}, spy));
+            compare(OpenList.onClick("hooks", {}, spy).action, "hooks");
+        }
+        function test_hook_rows_are_grouped_by_event_with_basenames_only() {
+            var r = OpenList.hookRows([
+                { event: "PreToolUse", matcher: "Bash", command: "python3", script: "/home/u/.claude/hooks/guard.py", source: "/home/u/.claude/settings.json", own: false },
+                { event: "PostToolUse", matcher: "", command: "node", script: "", source: "/home/u/.claude/settings.json", own: false },
+                { event: "PreToolUse", matcher: "", command: "x", script: "/home/u/y/lint.sh", source: "/home/u/.claude/settings.json", own: false },
+                { event: "Stop", matcher: "", command: "emit.py", script: "/r/hooks/emit.py", source: "", own: true },
+                { event: "SessionEnd", matcher: "", command: "emit.py", script: "/r/hooks/emit.py", source: "", own: true }
+            ], 16);
+            compare(r.rows.map(function (x) { return x.text; }),
+                    ["PostToolUse", "  node", "PreToolUse", "  guard.py", "  lint.sh", "roundhouse (2 events)"]);
+            compare(r.rows[3].sub, "Bash");
+            compare(r.rows[5].sub, "own");
+            compare(r.targets, ["", "/home/u/.claude/settings.json", "", "/home/u/.claude/hooks/guard.py", "/home/u/y/lint.sh", ""]);
+            verify(JSON.stringify(r).indexOf("/r/hooks/emit.py") < 0);          // the own entries are never a target
+        }
+        function test_hook_rows_are_capped_and_say_how_many_more() {
+            var es = [];
+            for (var i = 0; i < 30; i++) es.push({ event: "E" + (100 + i), matcher: "", command: "c", script: "", source: "", own: false });
+            var r = OpenList.hookRows(es, 10);
+            verify(r.rows.length <= 10);
+            verify(/^… and \d+ more$/.test(r.rows[r.rows.length - 1].text));
+            compare(r.targets.length, r.rows.length);
+        }
+        function test_parse_hooks_keeps_only_known_string_fields() {
+            var out = OpenList.parseHooks(JSON.stringify([
+                { event: "Stop", matcher: 5, command: "sh", script: "/a/b", source: "/c", own: false, args: "--token=SECRET" }, 7, { nope: 1 }]));
+            compare(out.length, 1);
+            compare(out[0].matcher, "");
+            compare(JSON.stringify(out).indexOf("SECRET"), -1);
+            compare(OpenList.parseHooks("[]").length, 0);          // a real empty list: "No hooks configured"
+        }
+        function test_a_failed_read_is_null_not_an_empty_list() {
+            compare(OpenList.parseHooks("not json"), null);
+            compare(OpenList.parseHooks(""), null);                // a timeout or crash prints nothing
+            compare(OpenList.parseHooks("{}"), null);
+            compare(OpenList.parseHooks('{"error": "Unreadable"}'), null);
+        }
+        function test_a_big_first_event_does_not_hide_the_small_later_ones() {
+            var es = [];
+            for (var i = 0; i < 15; i++) es.push({ event: "AAA", matcher: "", command: "c" + i, script: "", source: "/s", own: false });
+            es.push({ event: "BBB", matcher: "Bash", command: "b", script: "/x/b.sh", source: "/s", own: false });
+            es.push({ event: "CCC", matcher: "", command: "c", script: "/x/c.sh", source: "/s", own: false });
+            es.push({ event: "Stop", matcher: "", command: "e", script: "/r/emit.py", source: "/s", own: true });
+            var r = OpenList.hookRows(es, 16);
+            var texts = r.rows.map(function (x) { return x.text; });
+            compare(texts, ["BBB", "  b.sh", "CCC", "  c.sh", "\u2026 and 15 more", "roundhouse (1 events)"]);
+            compare(r.targets.length, r.rows.length);
+        }
+        function test_one_event_too_big_for_the_list_shows_as_many_rows_as_fit_under_its_header() {
+            var es = [];
+            for (var i = 0; i < 30; i++) es.push({ event: "AAA", matcher: "", command: "c" + i, script: "", source: "/s", own: false });
+            var r = OpenList.hookRows(es, 10);
+            compare(r.rows[0].text, "AAA");
+            verify(r.rows.length <= 10);
+            verify(/^\u2026 and \d+ more$/.test(r.rows[r.rows.length - 1].text));
+        }
+        function test_a_row_click_opens_only_a_row_with_a_target() {
+            compare(OpenList.pickAction("hooks", 0, [], ["", "/a/b"]).action, "none");
+            compare(OpenList.pickAction("hooks", 1, [], ["", "/a/b"]).action, "hookopen");
+            compare(OpenList.pickAction("hooks", 1, [], ["", "/a/b"]).path, "/a/b");
+            compare(OpenList.pickAction("hooks", 5, [], ["", "/a/b"]).action, "none");
+            compare(OpenList.hooksOpenArgs("t.py", "/a b").slice(-2), ["open", "/a b"]);
+        }
         function test_a_new_entry_can_bring_its_own_items_without_touching_board_js() {
             var board = { openables: function () { throw new Error("must not be asked"); } };
             try {
-                OpenList.HANDLERS.hooks = { items: function (sess, key, max) { return [{ label: "h", count: 1 }]; } };
-                verify(OpenList.canOpen("hooks", null, board));
-                compare(OpenList.onClick("hooks", null, board).action, "resolve");
-                OpenList.HANDLERS.hooks = { items: function () { return []; } };
-                verify(OpenList.canOpen("hooks", null, board));              // openable; the click finds nothing
-                compare(OpenList.onClick("hooks", null, board).action, "none");
-                OpenList.HANDLERS.hooks = { always: true, action: "custom" };
-                verify(OpenList.canOpen("hooks", null, board));
-                compare(OpenList.onClick("hooks", null, board).action, "custom");
-                OpenList.HANDLERS.hooks = { always: true };                  // nothing to do on a click: not openable
-                verify(!OpenList.canOpen("hooks", null, board));
-                compare(OpenList.onClick("hooks", null, board).action, "none");
+                OpenList.HANDLERS.scratch = { items: function (sess, key, max) { return [{ label: "h", count: 1 }]; } };
+                verify(OpenList.canOpen("scratch", null, board));
+                compare(OpenList.onClick("scratch", null, board).action, "resolve");
+                OpenList.HANDLERS.scratch = { items: function () { return []; } };
+                verify(OpenList.canOpen("scratch", null, board));              // openable; the click finds nothing
+                compare(OpenList.onClick("scratch", null, board).action, "none");
+                OpenList.HANDLERS.scratch = { always: true, action: "custom" };
+                verify(OpenList.canOpen("scratch", null, board));
+                compare(OpenList.onClick("scratch", null, board).action, "custom");
+                OpenList.HANDLERS.scratch = { always: true };                  // nothing to do on a click: not openable
+                verify(!OpenList.canOpen("scratch", null, board));
+                compare(OpenList.onClick("scratch", null, board).action, "none");
             } finally {
-                delete OpenList.HANDLERS.hooks;
+                delete OpenList.HANDLERS.scratch;
             }
-            verify(!OpenList.canOpen("hooks", null, board));
+            verify(!OpenList.canOpen("scratch", null, board));
         }
         function test_can_open_never_calls_a_provider() {
             var board = { openables: function () { throw new Error("must not be asked"); } };
             var calls = 0;
             try {
-                OpenList.HANDLERS.hooks = { can: true, items: function () { calls++; return [{ label: "h", count: 1 }]; } };
+                OpenList.HANDLERS.scratch = { can: true, items: function () { calls++; return [{ label: "h", count: 1 }]; } };
                 var realShell = OpenList.HANDLERS.shell;
                 OpenList.HANDLERS.shell = { can: function (s) { return !!s; }, items: function () { calls++; return []; } };
                 OpenList.HANDLERS.agents = { items: function () { calls++; return []; } };
-                for (var i = 0; i < 5; i++) ["hooks", "shell", "agents"].forEach(function (k) { OpenList.canOpen(k, {}, board); });
+                for (var i = 0; i < 5; i++) ["scratch", "shell", "agents"].forEach(function (k) { OpenList.canOpen(k, {}, board); });
                 compare(calls, 0);
-                verify(OpenList.canOpen("hooks", null, board));
+                verify(OpenList.canOpen("scratch", null, board));
                 verify(OpenList.canOpen("shell", {}, board));
                 verify(!OpenList.canOpen("shell", null, board));            // a cheap check can say no
                 verify(OpenList.canOpen("agents", null, board));
-                compare(OpenList.onClick("hooks", null, board).action, "resolve");
+                compare(OpenList.onClick("scratch", null, board).action, "resolve");
                 compare(calls, 1);                                          // the provider runs at click time
                 compare(OpenList.onClick("shell", {}, board).action, "none");
                 compare(calls, 2);
-                OpenList.HANDLERS.hooks = { can: false, items: function () { calls++; return []; } };
-                verify(!OpenList.canOpen("hooks", null, board));
+                OpenList.HANDLERS.scratch = { can: false, items: function () { calls++; return []; } };
+                verify(!OpenList.canOpen("scratch", null, board));
             } finally {
-                delete OpenList.HANDLERS.hooks; OpenList.HANDLERS.shell = realShell; delete OpenList.HANDLERS.agents;
+                delete OpenList.HANDLERS.scratch; OpenList.HANDLERS.shell = realShell; delete OpenList.HANDLERS.agents;
             }
         }
         function test_a_left_click_goes_through_the_table_as_it_did() {

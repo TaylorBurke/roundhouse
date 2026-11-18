@@ -194,7 +194,7 @@ What moves and what it means:
   `/tmp/claude-<uid>/<project>/<session id>/tasks/<task id>.output`, found from the task id and the session id
   by folder names only. If the file is gone, a short toast says so. The same file checks apply (an existing
   regular file in your home folder or Claude's scratch folder; a link that leads elsewhere is refused).
-- **Click Files, Memory, Skills or Browser** (the station has a faint backlight, and the pointer turns into a hand,
+- **Click Files, Memory, Skills, Browser or Hooks** (the station has a faint backlight, and the pointer turns into a hand,
   when there is something to open). **Files** and **Skills** open the file behind a name in your editor
   (`omarchy launch editor`; pictures, video, audio and PDFs go to your default viewer): one name opens
   at once, several are listed to pick from, and a name that matches several files lists those. The log
@@ -212,7 +212,22 @@ What moves and what it means:
   digits, dots and hyphens; no spaces, scheme, port, login or leading `-`; non-ASCII names are not offered,
   and nothing converts them to punycode; a name of 40 characters or more is skipped as possibly cut
   short) in the window and again in `tools/openhost.py`, which hands it to `xdg-open` as one
-  argument, never through a shell. **Browser** (clickable once the session has used a browser tool) focuses a browser window on your
+  argument, never through a shell. 
+  **Hooks** is always clickable too: it lists the hooks you have configured (not which one
+  fired; the log does not say), read at the click from the `hooks` section of `settings.json` and
+  `settings.local.json` (in `$CLAUDE_CONFIG_DIR`, else `~/.claude`) and from the `hooks.json` of each
+  installed and enabled plugin (only the installed version: `plugins/installed_plugins.json` and
+  `enabledPlugins` are read for that; if the registry is missing or unreadable, the newest version folder of
+  each plugin in `plugins/cache` is used instead). The same hook found twice is listed once. Project-level
+  `.claude/settings*.json` files are not read (the log does not know the project folder reliably). Hooks are
+  grouped by event, with roundhouse's own entries folded into one "roundhouse (17 events)" row. A row shows
+  only the script's name (or "prompt hook", "agent hook", "http hook") and its matcher, never the command
+  line or its arguments (they can hold secrets). A click opens the script: the first word of the command
+  that is an existing text file in your home folder, skipping interpreters such as `python`, `uv`, `node` or
+  `sh`; when there is none (or the hook is not a command), it opens the file that defines the hook. If the
+  hooks cannot be read, a toast says "Could not read hooks"; an empty list says "No hooks configured".
+  Nothing is edited.
+  **Browser** (clickable once the session has used a browser tool) focuses a browser window on your
   desktop (`tools/browserwin.py`, which asks the same Hyprland as the header's terminal focus): one window is
   focused at once, several are listed by page title (with workspace and class beside it) to pick from, and
   none gives a short note (a failed lookup or focus says so instead). Only exact browser classes count;
