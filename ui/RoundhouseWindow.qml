@@ -237,6 +237,11 @@ FloatingWindow {
         var d = OpenList.pickAction(listMode, index, listItems, listPaths);
         if (d.action === "lookup") lookup(d.item);
         else if (d.action === "open") { openPath(d.path); closeList(); }
+        else if (d.action === "openhost") { openHost(d.host); closeList(); }
+    }
+    function openHost(host) {
+        if (!OpenList.isHost(host)) return;
+        Quickshell.execDetached(OpenList.openHostArgs(Quickshell.shellPath("../tools/openhost.py"), host));
     }
     function openPath(path) {
         Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);

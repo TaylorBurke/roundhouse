@@ -23,8 +23,39 @@
 var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
-    skills: { names: true }
+    skills: { names: true },
+    network: { items: networkItems, list: true }   // hosts (open https://<host>) and MCP servers (history only), always listed
 };
+
+// A plain hostname, the same rule as tools/openhost.py (which checks again): dotted labels of letters,
+// digits and hyphens, none starting or ending with a hyphen, ASCII only (an IDN arrives as punycode).
+var HOST_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+function isHost(s) { return typeof s === "string" && s.length <= 253 && HOST_RE.test(s); }
+
+// The distinct hosts (a WebFetch label that is a plain hostname) and MCP servers (from the tool name
+// mcp__<server>__<tool>) behind the Network entries, with counts, newest first. Only a host carries
+// `host`, the one thing that may be opened; a server is `kind: "mcp"` and opens nothing.
+function networkItems(sess, key, max) {
+    if (!sess || !sess.entries) return [];
+    var by = {}, out = [];
+    sess.entries.forEach(function (e) {
+        if (e.station !== "network") return;
+        var id, it;
+        var mcp = /^mcp__(.+?)__/.exec(e.tool || "");
+        if (mcp) id = "m:" + mcp[1];
+        else if (e.tool === "WebFetch" && isHost(e.label)) id = "h:" + e.label;
+        else return;
+        it = by[id];
+        if (!it) {
+            it = by[id] = mcp ? { label: mcp[1], kind: "mcp", count: 0, ts: 0 } : { label: e.label, kind: "host", host: e.label, count: 0, ts: 0 };
+            out.push(it);
+        }
+        it.count++;
+        if (e.ts >= it.ts) it.ts = e.ts;
+    });
+    out.sort(function (a, b) { return b.ts - a.ts; });
+    return out.slice(0, max || 12);
+}
 
 // The items behind a left click at `key`, at most `max`: [] for a station with no entry or an entry
 // that is always open. `board` is board.js (this file cannot import it).
@@ -50,17 +81,20 @@ function onClick(key, sess, board) {
     var h = HANDLERS[key];
     if (!h) return { action: "none" };
     if (h.action) return { action: h.action };
-    return onNode(itemsOf(key, sess, board, 12));
+    return onNode(itemsOf(key, sess, board, 12), !!h.list);
 }
 
 // The names a station can open (from Board.openables): none, one (look it up and open it), or
 // several (list them to pick from).
-function onNode(items) {
+function onNode(items, alwaysList) {
     if (!items || items.length === 0) return { action: "none" };
-    if (items.length === 1) return { action: "resolve", item: items[0] };
+    if (items.length === 1 && !alwaysList) return { action: "resolve", item: items[0] };
     return {
         action: "list", items: items,
-        rows: items.map(function (it) { return { text: it.label, sub: it.count > 1 ? "×" + it.count : "" }; })
+        rows: items.map(function (it) {
+            var sub = it.count > 1 ? "×" + it.count : "";
+            return { text: it.label, sub: it.kind === "mcp" ? (sub ? "MCP \u00b7 " + sub : "MCP") : sub };
+        })
     };
 }
 
@@ -144,6 +178,8 @@ function accepts(seq, current, mode) {
 // What a click on row `index` means: look the name up (a list of names), open the file (a list of
 // files), or nothing (the "... and N more" row, or a row that is not there).
 function pickAction(mode, index, items, paths) {
+    if (mode === "items" && items && items[index] !== undefined && items[index].kind !== undefined)
+        return isHost(items[index].host) ? { action: "openhost", host: items[index].host } : { action: "none" };   // Network rows
     if (mode === "items" && items && items[index] !== undefined) return { action: "lookup", item: items[index] };
     if (mode === "paths" && paths && paths[index] !== undefined) return { action: "open", path: paths[index] };
     return { action: "none" };
@@ -209,4 +245,10 @@ function historyRows(calls, now) {
         if (c.agent) parts.push(c.agentType || "agent");
         return { text: c.label || "", sub: parts.join(" \u00b7 ") };
     });
+}
+
+// The command that opens a host: python3 tools/openhost.py open HOST. One argument, and the tool
+// validates it again.
+function openHostArgs(script, host) {
+    return ["python3", "-I", script, "open", host];
 }

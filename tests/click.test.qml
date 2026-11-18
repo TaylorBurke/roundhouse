@@ -151,7 +151,7 @@ Item {
         }
         function test_other_stations_never_react_even_with_calls_behind_them() {
             read("sh", "shell", "build it", "Bash");
-            read("n", "network", "example.com", "WebFetch");
+            read("n", "network", "web search", "WebSearch");               // Network reacts only to hosts and MCP servers
             ["shell", "network", "you", "model", "agents", "hooks", "browser"].forEach(function (k) {
                 compare(area(k).cursorShape, Qt.ArrowCursor, k);
                 mouseClick(map, station(k).x, station(k).y);
@@ -445,6 +445,67 @@ Item {
             compare(OpenList.shorten("/etc/x", "/home/ww"), "/etc/x");
             compare(OpenList.shorten("/home/wwx/a", "/home/ww"), "/home/wwx/a");
             compare(OpenList.shorten("/home/ww/a", ""), "/home/ww/a");
+        }
+
+        // ---- Network: hosts and MCP servers ----
+        function net(id, label, tool, ts) {
+            parent.fold({ ts: ts || 3, ev: "tool_end", id: id, station: "network", label: label, tool: tool, status: "ok" });
+        }
+        function sessNow() { return parent.board.sessions["aaaaaaaa"]; }
+        function test_network_groups_hosts_and_mcp_servers_with_counts() {
+            net("a", "docs.python.org", "WebFetch", 3);
+            net("b", "example.com", "WebFetch", 4);
+            net("c", "docs.python.org", "WebFetch", 5);
+            net("d", "gh: list issues", "mcp__gh__list_issues", 6);
+            net("e", "gh: get pr", "mcp__gh__get_pr", 7);
+            net("f", "web search", "WebSearch", 8);
+            net("g", "artifact", "Artifact", 9);
+            var items = OpenList.networkItems(sessNow(), "network", 12);
+            compare(items.map(function (i) { return i.label + ":" + i.kind + ":" + i.count; }),
+                    ["gh:mcp:2", "docs.python.org:host:2", "example.com:host:1"]);   // newest first; search and artifact name no host
+            compare(items[0].host, undefined);
+            compare(items[1].host, "docs.python.org");
+        }
+        function test_network_never_offers_a_label_that_is_not_a_plain_hostname() {
+            ["https://evil.com", "a b.com", "-x.com", "x.com/p", "web fetch", "a.com;id", "b\u00fccher.de"].forEach(function (l, i) {
+                net("h" + i, l, "WebFetch");
+            });
+            compare(OpenList.networkItems(sessNow(), "network", 12).length, 0);
+            verify(!OpenList.canOpen("network", sessNow(), Board));
+        }
+        function test_network_is_clickable_once_there_is_a_host_or_a_server() {
+            net("a", "web search", "WebSearch");
+            compare(area("network").cursorShape !== Qt.PointingHandCursor, true);
+            net("b", "example.com", "WebFetch");
+            compare(area("network").cursorShape, Qt.PointingHandCursor);
+        }
+        function test_a_single_host_is_still_listed_not_opened_at_once() {
+            net("a", "example.com", "WebFetch");
+            var d = OpenList.onClick("network", sessNow(), Board);
+            compare(d.action, "list");
+            compare(d.rows, [{ text: "example.com", sub: "" }]);
+        }
+        function test_a_pick_opens_a_host_and_nothing_else() {
+            net("a", "example.com", "WebFetch", 3);
+            net("b", "gh: x", "mcp__gh__x", 4);
+            net("c", "gh: y", "mcp__gh__y", 5);
+            var d = OpenList.onClick("network", sessNow(), Board);
+            compare(d.rows.map(function (r) { return r.text + "|" + r.sub; }), ["gh|MCP \u00b7 \u00d72", "example.com|"]);
+            compare(OpenList.pickAction("items", 0, d.items, []), { action: "none" });            // the server
+            compare(OpenList.pickAction("items", 1, d.items, []), { action: "openhost", host: "example.com" });
+            compare(OpenList.pickAction("items", 2, d.items, []), { action: "none" });            // no such row
+            // a host that is not plain is refused even if an item claims it
+            compare(OpenList.pickAction("items", 0, [{ kind: "host", host: "a b.com" }], []), { action: "none" });
+            compare(OpenList.pickAction("items", 0, [{ kind: "host", host: "-o.com" }], []), { action: "none" });
+        }
+        function test_isHost_refuses_hostile_input() {
+            ["example.com", "a-b.example.org", "xn--bcher-kva.de", "1.2.3.4"].forEach(function (h) { verify(OpenList.isHost(h), h); });
+            ["", "localhost", "a b.com", "https://a.com", "-a.com", "a.-b.com", "a-.com", "a.com.", "a..com", ".a.com",
+             "a.com/x", "a.com:80", "u@a.com", "a.com\n", "a\u0000.com", "a\u001b.com", "b\u00fccher.de", "a_b.com", "$(x).com",
+             "a.com;id", null, undefined, 5].forEach(function (h) { verify(!OpenList.isHost(h), String(h)); });
+        }
+        function test_the_open_command_is_one_list_with_the_host_as_one_argument() {
+            compare(OpenList.openHostArgs("/s/openhost.py", "example.com"), ["python3", "-I", "/s/openhost.py", "open", "example.com"]);
         }
     }
 }
