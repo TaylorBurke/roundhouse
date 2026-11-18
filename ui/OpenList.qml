@@ -14,6 +14,7 @@ Rectangle {
     property color faint: "#4a5164"
     property color accent: "#e0a458"
     property color edge: "#2a3140"
+    property bool interactive: true               // false: rows only show (recent calls), they do not react
     property int elideMode: Text.ElideRight        // how a long row is cut: a path reads best cut in the middle
 
     signal picked(int index)
@@ -51,13 +52,13 @@ Rectangle {
                 required property var modelData
                 objectName: "row" + index
                 width: col.width; height: root.rowHeight; radius: 4
-                color: hit.containsMouse ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.18) : "transparent"
+                color: hit.containsMouse && root.interactive ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.18) : "transparent"
                 Text {
                     anchors { left: parent.left; leftMargin: 6; right: sub.left; rightMargin: 6; verticalCenter: parent.verticalCenter }
                     text: row.modelData.text
                     textFormat: Text.PlainText
                     elide: root.elideMode
-                    color: hit.containsMouse ? root.inkStrong : root.ink
+                    color: hit.containsMouse && root.interactive ? root.inkStrong : root.ink
                     font.family: "monospace"; font.pixelSize: 11
                 }
                 Text {
@@ -69,6 +70,7 @@ Rectangle {
                 MouseArea {
                     id: hit
                     anchors.fill: parent
+                    enabled: root.interactive
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.picked(row.index)

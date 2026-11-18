@@ -2,6 +2,44 @@
 
 // What a click on a map station does, and what happens when the on-disk lookup answers.
 
+// What a left click does at each station that has something to open. A later ticket gives its
+// station an entry here instead of editing a shared switch. An entry says where its items come from:
+// `names` (the names Board.openables finds), `always` (there is always something, no lookup of
+// names), or `items(sess, key, max)` (its own provider, returning a list); and what the window does
+// with a click: `action` (for an entry that is not a list of names). An `always` entry must name an
+// `action`, or it is not openable (a hand cursor over something that does nothing). A station with
+// no entry reacts to a right click only (its recent calls), and nothing is computed for it.
+var HANDLERS = {
+    files: { names: true },
+    memory: { always: true, action: "memory" },     // the project's memory files are there without a call
+    skills: { names: true }
+};
+
+// The items behind a left click at `key`, at most `max`: [] for a station with no entry or an entry
+// that is always open. `board` is board.js (this file cannot import it).
+function itemsOf(key, sess, board, max) {
+    var h = HANDLERS[key];
+    if (!h || h.always) return [];
+    if (h.items) return h.items(sess, key, max, board) || [];
+    return h.names ? board.openables(sess, key, max) : [];
+}
+
+// Whether a left click at `key` leads anywhere: it has an entry, and something to open.
+function canOpen(key, sess, board) {
+    var h = HANDLERS[key];
+    if (!h) return false;
+    if (h.always) return !!h.action;
+    return itemsOf(key, sess, board, 1).length > 0;
+}
+
+// What a left click at `key` means: its entry's own action, else what onNode makes of its items.
+function onClick(key, sess, board) {
+    var h = HANDLERS[key];
+    if (!h) return { action: "none" };
+    if (h.action) return { action: h.action };
+    return onNode(itemsOf(key, sess, board, 12));
+}
+
 // The names a station can open (from Board.openables): none, one (look it up and open it), or
 // several (list them to pick from).
 function onNode(items) {
@@ -121,4 +159,41 @@ function parsePaths(text) {
             return parsed.paths.filter(function (p) { return typeof p === "string" && p.charAt(0) === "/"; });
     } catch (e) { }
     return [];
+}
+
+// A span for a row: "340ms", "1.2s", "45s", "3m". The unit is picked after rounding, so nothing
+// reads "1000ms" or "60s"; a negative span counts as 0.
+function durationLabel(ms) {
+    if (ms === undefined || ms === null || isNaN(ms)) return "";
+    var m = Math.max(0, ms);
+    var r = Math.round(m);
+    if (r < 1000) return r + "ms";
+    var tenths = Math.round(m / 100) / 10;
+    if (tenths < 10) return tenths + "s";
+    var secs = Math.round(m / 1000);
+    if (secs < 60) return secs + "s";
+    return Math.floor(secs / 60) + "m";
+}
+
+// How long ago, from `seconds`: "now", "40s", "5m", "2h".
+function ageLabel(seconds) {
+    if (typeof seconds !== "number" || isNaN(seconds)) return "";
+    if (seconds < 10) return "now";
+    if (seconds < 60) return Math.floor(seconds) + "s";
+    if (seconds < 3600) return Math.floor(seconds / 60) + "m";
+    return Math.floor(seconds / 3600) + "h";
+}
+
+// Recent calls (Board.history) as list rows: the name, and beside it the status, how long it took
+// and how long ago it started, and "agent" for a call a subagent made. A call still running has no
+// duration yet.
+function historyRows(calls, now) {
+    return (calls || []).map(function (c) {
+        var parts = [c.status || "ok"];
+        if (c.status !== "running" && c.ms !== undefined && c.ms !== null) parts.push(durationLabel(c.ms));
+        var age = ageLabel(Math.max(0, now - c.ts));
+        if (age !== "") parts.push(age);
+        if (c.agent) parts.push("agent");
+        return { text: c.label || "", sub: parts.join(" \u00b7 ") };
+    });
 }

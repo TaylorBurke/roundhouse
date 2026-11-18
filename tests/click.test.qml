@@ -21,6 +21,7 @@ Item {
         revision: parent.rev
     }
     SignalSpy { id: clicks; target: map; signalName: "nodeClicked" }
+    SignalSpy { id: rights; target: map; signalName: "nodeRightClicked" }
 
     OpenList {
         id: list
@@ -43,7 +44,7 @@ Item {
             parent.board = Board.newBoard();
             parent.fold({ ts: 1, ev: "session", dir: "proj", model: "claude-sonnet-5-5" });
             parent.fold({ ts: 2, ev: "prompt" });
-            clicks.clear(); picks.clear();
+            clicks.clear(); rights.clear(); picks.clear();
         }
 
         // ---- the map ----
@@ -94,6 +95,55 @@ Item {
             verify(b.color.a < 0.2);                          // faint
             verify(b.width > map.discR * 2 && b.width < map.discR * 3);   // snug round the disc, smaller than the busy glow (3.0)
         }
+        function test_a_right_click_works_on_all_ten_stations_with_or_without_calls() {
+            read("a", "files", "src/app.ts");
+            var keys = ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"];
+            keys.forEach(function (k, i) {
+                mouseClick(map, station(k).x, station(k).y, Qt.RightButton);
+                compare(rights.count, i + 1, k);
+                compare(rights.signalArguments[i][0], k);
+                verify(rights.signalArguments[i][1].x > 0);          // the anchor, to put the list beside
+            });
+            compare(clicks.count, 0);                                 // and none of them was a left click
+        }
+        function test_a_right_click_is_not_a_left_click_and_a_left_click_is_not_a_right_click() {
+            read("a", "files", "src/app.ts");
+            mouseClick(map, station("files").x, station("files").y, Qt.RightButton);
+            compare(clicks.count, 0);
+            compare(rights.count, 1);
+            mouseClick(map, station("files").x, station("files").y);
+            compare(clicks.count, 1);
+            compare(rights.count, 1);
+        }
+        function test_a_right_press_on_a_station_with_nothing_to_open_leaves_the_pointer_an_arrow() {
+            var p = station("shell");
+            mouseMove(map, p.x, p.y);
+            compare(area("shell").cursorShape, Qt.ArrowCursor);
+            mousePress(map, p.x, p.y, Qt.RightButton);
+            compare(area("shell").cursorShape, Qt.ArrowCursor);
+            mouseRelease(map, p.x, p.y, Qt.RightButton);
+            compare(area("shell").cursorShape, Qt.ArrowCursor);
+            compare(clicks.count, 0);                                  // never a left click
+            compare(rights.count, 1);
+            mouseMove(map, 2, 2);
+        }
+        function test_a_left_press_passes_through_a_station_with_nothing_to_open() {
+            compare(area("shell").acceptedButtons, Qt.RightButton);          // only the right button is taken
+            read("a", "files", "src/app.ts");
+            compare(area("files").acceptedButtons, Qt.LeftButton | Qt.RightButton);
+            var p = station("shell");
+            mousePress(map, p.x, p.y, Qt.LeftButton);
+            compare(area("shell").pressed, false);                           // not accepted: it is not ours
+            mouseRelease(map, p.x, p.y, Qt.LeftButton);
+        }
+        function test_the_station_under_a_point_is_found_for_the_click_away_overlay() {
+            ["you", "model", "memory", "files", "shell", "network", "browser", "agents", "skills", "hooks"].forEach(function (k) {
+                var p = station(k);
+                compare(map.stationAt(p.x, p.y), k);
+            });
+            compare(map.stationAt(map.cx, map.cy), "");                       // the hub is no station
+            compare(map.stationAt(-5, -5), "");
+        }
         function test_a_station_with_nothing_to_open_stays_an_arrow_and_does_not_react() {
             compare(area("files").cursorShape, Qt.ArrowCursor);
             mouseClick(map, station("files").x, station("files").y);
@@ -131,6 +181,84 @@ Item {
             mouseMove(map, 2, 2);
         }
 
+        // ---- the table of what a left click does ----
+        function test_the_handler_table_decides_what_can_open() {
+            var sess = { n: 0 };
+            var spy = { calls: 0, openables: function () { this.calls++; return [{ label: "x", count: 1 }]; } };
+            verify(OpenList.canOpen("memory", sess, spy));                    // always
+            compare(spy.calls, 0);                                           // and no names were computed for it
+            ["you", "model", "shell", "network", "browser", "agents", "hooks", "hub", "nope"].forEach(function (k) {
+                verify(!OpenList.canOpen(k, sess, spy), k);                  // no entry: nothing to open, even with names
+            });
+            compare(spy.calls, 0);                                           // no names computed for a key with no entry
+            verify(OpenList.canOpen("files", sess, spy));
+            verify(OpenList.canOpen("skills", sess, spy));
+            compare(spy.calls, 2);
+            var none = { openables: function () { return []; } };
+            verify(!OpenList.canOpen("files", sess, none));
+            verify(!OpenList.canOpen("files", null, { openables: function () { return []; } }));
+        }
+        function test_a_new_entry_can_bring_its_own_items_without_touching_board_js() {
+            var board = { openables: function () { throw new Error("must not be asked"); } };
+            try {
+                OpenList.HANDLERS.hooks = { items: function (sess, key, max) { return [{ label: "h", count: 1 }]; } };
+                verify(OpenList.canOpen("hooks", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "resolve");
+                OpenList.HANDLERS.hooks = { items: function () { return []; } };
+                verify(!OpenList.canOpen("hooks", null, board));
+                OpenList.HANDLERS.hooks = { always: true, action: "custom" };
+                verify(OpenList.canOpen("hooks", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "custom");
+                OpenList.HANDLERS.hooks = { always: true };                  // nothing to do on a click: not openable
+                verify(!OpenList.canOpen("hooks", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "none");
+            } finally {
+                delete OpenList.HANDLERS.hooks;
+            }
+            verify(!OpenList.canOpen("hooks", null, board));
+        }
+        function test_a_left_click_goes_through_the_table_as_it_did() {
+            function board(items) { return { openables: function () { return items; } }; }
+            compare(OpenList.onClick("memory", null, board([])).action, "memory");
+            compare(OpenList.onClick("files", null, board([])).action, "none");
+            compare(OpenList.onClick("files", null, board([{ label: "a/b.md", count: 1 }])).action, "resolve");
+            var two = board([{ label: "x", count: 2 }, { label: "y", count: 1 }]);
+            compare(OpenList.onClick("skills", null, two).action, "list");
+            compare(OpenList.onClick("skills", null, two).rows[0].sub, "\u00d72");
+            compare(OpenList.onClick("shell", null, two).action, "none");     // no entry
+        }
+
+        // ---- recent calls as rows ----
+        function test_history_rows_say_status_duration_and_age() {
+            var rows = OpenList.historyRows([
+                { label: "watch it", status: "running", ms: undefined, ts: 95 },
+                { label: "test it", status: "err", ms: 250, ts: 90 },
+                { label: "build it", status: "ok", ms: 1234, ts: 40 },
+                { label: "old", status: "blocked", ms: undefined, ts: -3500 },
+                { label: "sub call", status: "ok", ms: 7, ts: 99, agent: true }], 100);
+            compare(rows.map(function (r) { return r.text; }), ["watch it", "test it", "build it", "old", "sub call"]);
+            compare(rows[0].sub, "running \u00b7 now");
+            compare(rows[1].sub, "err \u00b7 250ms \u00b7 10s");
+            compare(rows[2].sub, "ok \u00b7 1.2s \u00b7 1m");
+            compare(rows[3].sub, "blocked \u00b7 1h");
+            compare(rows[4].sub, "ok \u00b7 7ms \u00b7 now \u00b7 agent");
+            compare(OpenList.historyRows([], 100), []);
+            compare(OpenList.historyRows(null, 100), []);
+        }
+        function test_durations_and_ages_are_short() {
+            compare([0, 340, 999, 1000, 9960, 10000, 45000, 59999, 60000, 185000].map(OpenList.durationLabel),
+                    ["0ms", "340ms", "999ms", "1s", "10s", "10s", "45s", "1m", "1m", "3m"]);
+            compare([999.6, 999.4, 9949, 9950, 59499, 59500, -5, -0.4].map(OpenList.durationLabel),
+                    ["1s", "999ms", "9.9s", "10s", "59s", "1m", "0ms", "0ms"]);       // the unit is picked after rounding; never negative
+            compare(OpenList.durationLabel(NaN), "");
+            compare([undefined, null, NaN, "x"].map(OpenList.ageLabel), ["", "", "", ""]);
+            var odd = OpenList.historyRows([{ label: "x", status: "ok", ms: 5 }, { label: "y", status: "ok", ts: "soon" }], 100);
+            compare(odd.map(function (r) { return r.sub; }), ["ok \u00b7 5ms", "ok"]);        // no NaN, no dangling separator
+            compare(OpenList.durationLabel(undefined), "");
+            compare([0, 9, 10, 59, 60, 3599, 3600, 7300].map(OpenList.ageLabel), ["now", "now", "10s", "59s", "1m", "59m", "1h", "2h"]);
+            compare(OpenList.historyRows([{ label: "x", status: "ok", ms: 5, ts: 200 }], 100)[0].sub, "ok \u00b7 5ms \u00b7 now");   // a clock a little behind never goes negative
+        }
+
         // ---- the list ----
         function test_a_row_click_says_which_row() {
             list.message = "";
@@ -142,6 +270,21 @@ Item {
             compare(picks.signalArguments[0][0], 1);
             mouseClick(findChild(list, "row0"));
             compare(picks.signalArguments[1][0], 0);
+        }
+        function test_rows_that_are_not_interactive_do_not_react_or_light_up() {
+            list.message = "";
+            list.rows = [{ text: "make build", sub: "err" }, { text: "npm test", sub: "ok" }];
+            tryVerify(function () { return findChild(list, "row0") !== null; }, 3000);
+            wait(60);
+            list.interactive = false;
+            picks.clear();
+            mouseMove(findChild(list, "row0"), 10, 5);
+            mouseClick(findChild(list, "row0"));
+            compare(picks.count, 0);
+            list.interactive = true;
+            mouseClick(findChild(list, "row0"));
+            compare(picks.count, 1);
+            list.rows = [{ text: "src/app.ts", sub: "\u00d73" }, { text: "README.md", sub: "" }];
         }
         function test_a_message_alone_is_a_note_without_rows() {
             list.rows = []; list.message = "Looking for a/b.md";

@@ -349,6 +349,35 @@ QtObject {
         Board.fold(b, ev({ ts: 5, ev: "agent_end", type: "Explore", agent: "a1" }));
         check("its end ends the task", [Board.runningAgents(sess(b)), sess(b).stations.agents.running], [0, 0]);
 
+        // history: the recent calls at one station, newest first, capped, names and numbers only
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "tool_start", id: "h1", station: "shell", label: "build it", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 2, ev: "tool_end", id: "h1", station: "shell", label: "build it", tool: "Bash", status: "ok", ms: 1000 }));
+        Board.fold(b, ev({ ts: 3, ev: "tool_end", id: "h2", station: "files", label: "a/b.md", tool: "Read", status: "ok", ms: 20 }));
+        Board.fold(b, ev({ ts: 4, ev: "tool_end", id: "h3", station: "shell", label: "test it", tool: "Bash", status: "err", ms: 250 }));
+        Board.fold(b, ev({ ts: 5, ev: "tool_start", id: "h4", station: "shell", label: "watch it", tool: "Bash" }));
+        check("history newest first", Board.history(sess(b), "shell", 10).map(function (h) { return h.label + ":" + h.status; }),
+              ["watch it:running", "test it:err", "build it:ok"]);
+        check("history fields", Board.history(sess(b), "shell", 2).map(function (h) { return [h.ms, h.ts]; }), [[undefined, 5], [250, 3.75]]);
+        check("history of another station", Board.history(sess(b), "files", 10).length, 1);
+        check("history cap", Board.history(sess(b), "shell", 1).length, 1);
+        check("history default cap", Board.history(sess(b), "shell").length, 3);
+        check("history of a quiet station", Board.history(sess(b), "network", 10), []);
+        check("history without a session", [Board.history(null, "shell", 10), Board.history(undefined, "shell", 10)], [[], []]);
+        check("history keeps only what the log has",
+              Object.keys(Board.history(sess(b), "files", 1)[0]).sort(), ["agent", "label", "ms", "status", "ts"]);
+        Board.fold(b, ev({ ts: 5.5, ev: "tool_end", id: "ag1", station: "files", label: "sub/x.md", tool: "Read", status: "ok", ms: 3, agent: "a1" }));
+        check("history marks a subagent's call", Board.history(sess(b), "files", 10).map(function (h) { return h.agent; }), [true, false]);
+        Board.fold(b, ev({ ts: 6, ev: "prompt" }));
+        sess(b).entries.push({ ts: 5.6, station: "files", label: "odd", status: "ok", ms: null });
+        check("history turns a null duration into none", Board.history(sess(b), "files", 1)[0].ms, undefined);
+        sess(b).entries.pop();
+        check("an unknown station titles itself by its key", [Board.report(null, "zzz").title, Board.report(sess(b), "zzz").title], ["zzz", "zzz"]);
+        check("history has the notes too", Board.history(sess(b), "you", 10).map(function (h) { return h.label; }), ["new message"]);
+        for (i = 0; i < 20; i++) Board.fold(b, ev({ ts: 10 + i, ev: "tool_end", id: "m" + i, station: "network", label: "n" + i, tool: "WebFetch", status: "ok", ms: 5 }));
+        check("history default is ten", Board.history(sess(b), "network").length, 10);
+        check("history newest of many", Board.history(sess(b), "network", 1)[0].label, "n19");
+
         // theme: parse colors.toml, derive a palette, fall back when the file is missing or odd
         var toml = '# a comment\nmode = "dark"\n\naccent = "#509475"\nbackground = "#111c18"\nforeground = "#C1C497"\nbright_foreground = "#F7E8B2"\nmuted = "#53685B"\nred = "#FF5345"\ncyan = "#2DD5B7"\nbroken = nope\n';
         var parsed = Theme.parseColors(toml);
