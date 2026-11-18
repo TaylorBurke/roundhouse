@@ -316,6 +316,7 @@ class Hardening(World):
 
     def test_overlong_lines_are_skipped_without_losing_the_next(self):
         saved = transcript.MAX_LINE
+        os.makedirs(self.proj, exist_ok=True)
         transcript.MAX_LINE = 1000
         try:
             self.session([prompt()], raw=['{"x":"' + "z" * 5000 + '"}'])
@@ -398,6 +399,73 @@ class Hardening(World):
             self.assertEqual(json.loads(out.getvalue())["error"], "unreadable")
         finally:
             transcript.run = saved
+
+
+class Review(World):
+    def test_cap_last_resort_keeps_the_shape(self):
+        saved = transcript.MAX_OUTPUT
+        transcript.MAX_OUTPUT = 20
+        try:
+            t = transcript.cap({"sid": "x", "turn": {"steps": [{"thinking": None}], "totals": {"a": 1}}})
+            self.assertEqual((t["turn"]["steps"], t["turn"]["totals"], t["capped"]), ([], {}, True))
+            c = transcript.cap({"sid": "x", "context": {"points": [{"ts": "y" * 500}], "compactions": []}})
+            self.assertEqual((c["context"]["points"], c["context"]["compactions"]), ([], []))
+        finally:
+            transcript.MAX_OUTPUT = saved
+
+    def test_an_unknown_agent_lists_the_available_ones(self):
+        self.session([prompt()])
+        write(os.path.join(self.proj, FULL, "subagents", "agent-a1b2c3.jsonl"), [prompt("p")])
+        out = transcript.run("turn", SID, "zzzz")
+        self.assertFalse(out["found"])
+        self.assertEqual(out["agents"], ["a1b2c3"])
+
+    def test_an_unconsumed_generator_opens_nothing(self):
+        self.session([prompt()])
+        opened = []
+        real = open
+        transcript.open = lambda *a, **k: opened.append(a) or real(*a, **k)
+        try:
+            gen, _ = transcript.records(self.main)
+            self.assertEqual(opened, [])
+            del gen
+        finally:
+            del transcript.open
+
+    def test_line_length_boundary(self):
+        saved = transcript.MAX_LINE
+        os.makedirs(self.proj, exist_ok=True)
+        transcript.MAX_LINE = 100
+        try:
+            for n, kept in ((99, True), (100, True), (101, False), (102, False), (500, False)):
+                body = '{"k":"' + "a" * (n - 8) + '"}'
+                self.assertEqual(len(body), n)
+                with open(self.main, "w") as f:
+                    f.write(body + "\n" + '{"z":1}\n')
+                self.assertEqual(len(list(transcript.records(self.main)[0])), 2 if kept else 1, n)
+            with open(self.main, "w") as f:        # no trailing newline on the last line
+                f.write('{"z":1}\n{"k":"' + "a" * 92 + '"}')
+            self.assertEqual(len(list(transcript.records(self.main)[0])), 2)
+        finally:
+            transcript.MAX_LINE = saved
+
+    def test_a_tail_cut_inside_an_overlong_line_is_dropped_whole(self):
+        saved = (transcript.MAX_FILE, transcript.MAX_LINE, transcript.TAIL)
+        os.makedirs(self.proj, exist_ok=True)
+        try:
+            long_line = '{"k":"' + "a" * 1000 + '"}\n'
+            with open(self.main, "w") as f:
+                f.write(long_line + '{"z":1}\n')
+            transcript.MAX_LINE, transcript.MAX_FILE, transcript.TAIL = 100, 10, 400
+            recs = list(transcript.records(self.main)[0])
+            self.assertEqual(recs, [{"z": 1}])
+        finally:
+            transcript.MAX_FILE, transcript.MAX_LINE, transcript.TAIL = saved
+
+    def test_only_the_exact_harness_marker_is_not_a_prompt(self):
+        self.assertFalse(transcript.is_prompt(prompt("  [Request interrupted by user]\n")))
+        self.assertTrue(transcript.is_prompt(prompt("[Request interrupted by user] please redo that")))
+        self.assertTrue(transcript.is_prompt(prompt("[Request interrupted by user for tool use] why?")))
 
 
 class Cli(World):

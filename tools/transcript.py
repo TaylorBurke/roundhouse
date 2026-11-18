@@ -37,7 +37,7 @@ MAX_TOOLS = 20
 MAX_AGENTS = 200                  # path: subagent ids listed
 MAX_TS = 40                       # characters of a timestamp kept
 MAX_NUM = 2 ** 53                 # numbers read from a transcript are clamped to this
-INTERRUPTED = "[Request interrupted by user"
+INTERRUPTED = ("[Request interrupted by user]", "[Request interrupted by user for tool use]")
 MAX_REASONING = 400               # characters of reasoning kept per step
 MAX_OUTPUT = 60000                # bytes of JSON on stdout
 SID = re.compile(r"[A-Za-z0-9_-]{8}")
@@ -145,47 +145,59 @@ def locate(sid, agent=None, listing=False, sessions=None):
         return safe(session), session, agents
     hits = agents_of(session, prefix=agent)
     first = sorted(hits)[:1]
-    agents = sorted(agents_of(session))[:MAX_AGENTS] if listing else []
+    agents = sorted(agents_of(session))[:MAX_AGENTS] if listing or not first else []
     return (safe(hits[first[0]]) if first else None), session, agents
+
+
+def read_line(f):
+    """The next line of f without its newline: None at end of file, False for a line longer than MAX_LINE
+    (the rest of it is read and dropped in bounded chunks, never held whole), else the bytes."""
+    raw = f.readline(MAX_LINE + 2)
+    if not raw:
+        return None
+    done = raw.endswith(b"\n")
+    body = raw[:-1] if done else raw
+    if not done and len(raw) > MAX_LINE + 1:
+        while True:
+            rest = f.readline(MAX_LINE + 2)
+            if not rest or rest.endswith(b"\n"):
+                break
+    return False if len(body) > MAX_LINE else body
 
 
 def records(path):
     """Parsed records of a transcript, in order, as a generator; returns (generator, truncated). Lines that
     are too long or not JSON are skipped (a long line is never held whole); a huge file is read from its
-    tail, dropping the partial first line (a line that starts exactly at the seek point is kept)."""
+    tail, dropping the partial first line (a line that starts exactly at the seek point is kept). The file
+    is opened only when the generator is first advanced."""
     try:
         size = os.path.getsize(path)
-        f = open(path, "rb")
     except OSError:
         return iter(()), False
     truncated = size > MAX_FILE
 
     def gen():
-        with f:
-            try:
+        try:
+            with open(path, "rb") as f:
                 if truncated:
-                    # start one byte early: if that byte is the newline ending the previous line, the readline
+                    # start one byte early: if that byte is the newline ending the previous line, the read
                     # below eats only that newline and the line at the seek point is kept
                     f.seek(size - TAIL - 1)
-                    f.readline(MAX_LINE + 1)
+                    read_line(f)
                 while True:
-                    raw = f.readline(MAX_LINE + 1)
-                    if not raw:
+                    line = read_line(f)
+                    if line is None:
                         return
-                    if len(raw) > MAX_LINE and not raw.endswith(b"\n"):
-                        while True:            # over-long: drop the rest of the line without keeping it
-                            rest = f.readline(MAX_LINE)
-                            if not rest or rest.endswith(b"\n"):
-                                break
+                    if line is False:
                         continue
                     try:
-                        rec = json.loads(raw)
+                        rec = json.loads(line)
                     except (ValueError, RecursionError):
                         continue
                     if isinstance(rec, dict):
                         yield rec
-            except OSError:
-                return
+        except OSError:
+            return
     return gen(), truncated
 
 
@@ -197,13 +209,13 @@ def is_prompt(rec):
     msg = rec.get("message")
     content = msg.get("content") if isinstance(msg, dict) else None
     if isinstance(content, str):
-        return bool(content.strip()) and not content.lstrip().startswith(INTERRUPTED)
+        return bool(content.strip()) and content.strip() not in INTERRUPTED
     if not isinstance(content, list):
         return False
     for b in content:
         if isinstance(b, dict) and b.get("type") == "text":
             t = b.get("text")
-            if not (isinstance(t, str) and t.lstrip().startswith(INTERRUPTED)):
+            if not (isinstance(t, str) and t.strip() in INTERRUPTED):
                 return True
     return False
 
@@ -361,8 +373,11 @@ def cap(result):
     if not fits() and isinstance(result.get("agents"), list):
         result["agents"] = []
     if not fits():
-        for k in ("turn", "context"):
-            result.pop(k, None)
+        if "turn" in result:
+            result["turn"] = {"duration_ms": None, "steps": [], "step_count": 0,
+                              "totals": {}, "partial": True}
+        if "context" in result:
+            result["context"] = {"points": [], "point_count": 0, "peak": 0, "compactions": [], "partial": True}
     return result
 
 
