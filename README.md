@@ -226,6 +226,15 @@ What moves and what it means:
   matches several sessions). "Open the raw transcript" hands that one `.jsonl` (found by the tool, a regular
   file inside `~/.claude/projects`) to the editor. No transcript: a toast. Other stations do nothing on a
   left click yet.
+- **Click the hub** (a hand cursor shows when the session has a context reading or any logged call) for
+  the context panel: a small line of the tokens in the context at each model call over the whole session
+  (thinned to about 60 points, in the theme's colours), the current reading against the window, the peak,
+  and the compaction history, newest first (time, `auto` or `manual`, tokens before -> after; `?` when
+  the transcript did not say). It reads the session's transcript at the click (`tools/transcript.py
+  context`, read-only, numbers only: no text from the transcript is shown or kept). A very large
+  transcript is read from its end, and a very long one has its oldest points dropped; the panel says so
+  in one line, as it does when several sessions share the 8-character id (the newest is shown). No
+  transcript found: a short note instead. A click anywhere else, or Esc, closes it.
 - **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
   status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started, and the
   subagent's type (`agent` if unknown) for a call a subagent made. It covers the last 80 events of the session, so older calls are gone. A station
