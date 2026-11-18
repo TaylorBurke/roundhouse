@@ -67,7 +67,7 @@ FloatingWindow {
         function onLive(ev, blocked) {
             if (ev.sid !== win.shownSid) return;
             map.handle(ev, blocked);
-            if (win.listMode === "drafts") win.closeList();      // the session moved on: a stale draft list is not offered
+            if (win.listMode === "drafts" && !Board.isIdle(win.session)) win.closeList();      // the session got busy: a stale draft list is not offered
         }
     }
 
@@ -228,20 +228,26 @@ FloatingWindow {
         if (drafting || !a) return;
         if (!Board.isIdle(session)) { toast("Claude is busy; not typing"); return; }     // checked again at the pick
         drafting = true;
-        draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
+        var job = draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
+        if (!job) { drafting = false; toast("Could not start the draft tool"); }
     }
+    // `drafting` is cleared only when the process has exited, so two draft.py runs never overlap. After
+    // 20 s (longer than the tool's own limits) the process is told to stop; if it cannot be stopped,
+    // `drafting` stays true and picks stay ignored until this window is closed.
     Component {
         id: draftC
         Item {
             id: job
             property var command: []
-            Component.onDestruction: win.drafting = false
             Process {
+                id: proc
                 command: job.command
                 running: true
-                stderr: StdioCollector { onStreamFinished: { if (text.trim() !== "") win.toast(text.trim()); job.destroy(); } }
+                onExited: { win.drafting = false; cleanup.start(); }
+                stderr: StdioCollector { onStreamFinished: { if (text.trim() !== "") win.toast(text.trim()); } }
             }
-            Timer { interval: 20000; running: true; onTriggered: job.destroy() }     // longer than the tool's own limits
+            Timer { interval: 20000; running: true; onTriggered: proc.running = false }
+            Timer { id: cleanup; interval: 1000; onTriggered: job.destroy() }      // after the stderr text has arrived
         }
     }
     // A right click on any station: its recent calls, newest first (names only, from the log), or a

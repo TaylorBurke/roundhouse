@@ -252,8 +252,13 @@ What moves and what it means:
   private-use or line-break characters, and runs `wtype -- TEXT` with no shell. Needs `wtype` (a toast
   says so if it is missing). The idle check is repeated at the pick; a busy session just gets its
   terminal focused. Known limits: idleness is inferred from tool events only, so a long streaming
-  reply with no tool calls looks idle; and a half-typed prompt already in the terminal is appended to,
-  not replaced.
+  reply with no tool calls looks idle, so an unlogged dialog, or vim in normal mode, in the terminal can
+  receive the text; a half-typed prompt already in the terminal is appended to, not replaced; and a
+  small time gap remains between `draft.py`'s last window check and `wtype` (the text, at most 300
+  characters and never Enter, goes to whichever window is focused then). The window's own draft filter
+  lists only the common invisible characters; `draft.py` is the authority and may refuse a draft the
+  list showed. After a successful load of `config.json`, a deleted or broken file keeps the last good
+  values until the shell restarts (so an atomic-replace save cannot reset them).
 - **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
   status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started, and the
   subagent's type (`agent` if unknown) for a call a subagent made. It covers the last 80 events of the session, so older calls are gone. A station
