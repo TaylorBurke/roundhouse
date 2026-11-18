@@ -30,6 +30,7 @@ function newSession(sid) {
         errDots: {},              // station -> errors and refusals since the last prompt (the red dot)
         uses: {},                 // station -> every call seen there this session (wears the spoke)
         route: [],                // stations the main loop visited, newest last: { station, ts }
+        waitingId: null,          // the call whose permission ask is open, when the ask named one
         waiting: false,           // a permission ask or question is open: You waits on the owner
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
         entries: [],              // newest last, at most MAX_ENTRIES
@@ -150,6 +151,8 @@ function applyTool(sess, ev, ending) {
     }
 }
 
+function clearWaiting(sess) { sess.waiting = false; sess.waitingId = null; }
+
 function fold(board, ev) {
     if (!ev || typeof ev !== "object" || !ev.sid || !ev.ev) return false;
     if (!remember(board, JSON.stringify(ev))) return false;   // replayed after the log was cut back
@@ -166,16 +169,17 @@ function fold(board, ev) {
         sess.endReason = "";
     } else if (kind === "session_end") {
         sess.ended = true;
-        sess.waiting = false;
+        clearWaiting(sess);
         sess.endReason = ev.reason || "";
     } else if (kind === "tool_start") {
-        sess.waiting = false;                 // the call went ahead: the ask was answered
+        if (!sess.waitingId || ev.id === sess.waitingId) clearWaiting(sess);   // another call starting does not answer an ask on a parallel one
         applyTool(sess, ev, false);
     } else if (kind === "tool_end") {
+        if (sess.waitingId && ev.id === sess.waitingId) clearWaiting(sess);    // the asked call ran: it was approved
         applyTool(sess, ev, true);
     } else if (kind === "prompt") {
         sess.switched = false;
-        sess.waiting = false;
+        clearWaiting(sess);
         sess.errDots = {};
         sess.promptTs = ev.ts;
         // The red dots were just cleared, so the calls behind them stop counting: a late end for
@@ -194,7 +198,7 @@ function fold(board, ev) {
         note(sess, ev, "model", "next step");
     } else if (kind === "stop") {
         closeOpen(sess, ev);
-        sess.waiting = false;
+        clearWaiting(sess);
         var listed = {};
         (ev.bg || []).forEach(function (t) { if (t && t.id) listed[t.id] = true; });
         Object.keys(sess.tasks).forEach(function (id) {     // started before this stop, not listed: finished
@@ -206,9 +210,10 @@ function fold(board, ev) {
         note(sess, ev, "model", "stopped: " + (ev.error || "error"), "err");
     } else if (kind === "ask") {
         sess.waiting = true;
+        sess.waitingId = ev.id || null;
         note(sess, ev, "hooks", "asked permission: " + (ev.tool || ""));
     } else if (kind === "denied") {
-        sess.waiting = false;
+        clearWaiting(sess);
         var denied = ev.id ? sess.byId[ev.id] : null;
         if (denied && denied.status === "running") blockEntry(sess, denied);
         else if (!denied) dot(sess, "hooks", 1);
@@ -244,7 +249,7 @@ function fold(board, ev) {
         sess.tokensStale = false;
         if (ev.model && !sess.switched) sess.model = ev.model;
     } else if (kind === "notify") {
-        if (ASKING.indexOf(ev.type) >= 0) sess.waiting = true;     // idle_prompt and the like are not a question
+        if (ASKING.indexOf(ev.type) >= 0) { sess.waiting = true; sess.waitingId = null; }    // idle_prompt and the like are not a question
         note(sess, ev, "you", "notification: " + (ev.type || ""));
     }
     recount(sess);
@@ -348,7 +353,7 @@ function heat(sess, station) {
 
 // The slow-call setting in seconds: a positive number, else the default. 0 or "off" turns it off (returns 0).
 function parseSlow(value) {
-    if (value === 0 || value === false || /^\s*off\s*$/i.test(String(value))) return 0;
+    if (value === 0 || value === false || /^\s*(off|0+(\.0*)?)\s*$/i.test(String(value))) return 0;
     var n = typeof value === "number" ? value : parseFloat(value);
     return n > 0 && isFinite(n) ? n : SLOW_DEFAULT;
 }

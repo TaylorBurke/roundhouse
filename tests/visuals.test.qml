@@ -29,7 +29,7 @@ Item {
             parent.board = Board.newBoard();
             parent.fold({ ts: 1, ev: "session", dir: "proj", model: "claude-sonnet-5-5" });
             map.slowSeconds = 120;
-            map.presses = 0;
+            map.presses = 0; map.lastPress = 0;
         }
         function item(name) { return findChild(map, name); }
 
@@ -77,6 +77,27 @@ Item {
             compare(map.presses, 1);
             mouseClick(map, map.cx, map.cy);                   // the hub
             compare(map.presses, 1);
+        }
+        function test_one_press_ripples_once_on_every_kind_of_station() {
+            parent.fold({ ts: 2, ev: "tool_end", id: "a", station: "files", label: "src/app.ts", tool: "Read", status: "ok" });
+            ["files", "network", "you"].forEach(function (k) {       // clickable, nothing to open, nothing to open
+                map.presses = 0; map.lastPress = 0;
+                var p = map.pos(map.indexOf(k));
+                mouseClick(map, p.x, p.y);
+                compare(map.presses, 1, k);
+            });
+            map.presses = 0; map.lastPress = 0;
+            var q = map.pos(map.indexOf("network"));
+            mouseClick(map, q.x, q.y, Qt.RightButton);
+            compare(map.presses, 1);
+        }
+        function test_the_slow_clock_is_fresh_when_the_setting_turns_on() {
+            map.slowSeconds = 0;
+            parent.fold({ ts: Date.now() / 1000 - 300, ev: "tool_start", id: "a", station: "shell", label: "sleep", tool: "Bash" });
+            map.nowSec = 0;                                   // stale
+            map.slowSeconds = 120;
+            verify(map.nowSec > 0);
+            verify(item("slow_shell").visible);
         }
         function test_pressing_a_clickable_station_ripples_and_still_clicks() {
             parent.fold({ ts: 2, ev: "tool_end", id: "a", station: "files", label: "src/app.ts", tool: "Read", status: "ok" });

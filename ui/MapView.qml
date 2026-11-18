@@ -202,6 +202,7 @@ Item {
     readonly property color amber: bg.hslLightness > 0.5 ? "#c26a00" : "#ffb347"
     property real nowSec: Date.now() / 1000
     Timer { interval: 5000; running: root.slowSeconds > 0; repeat: true; onTriggered: root.nowSec = Date.now() / 1000 }
+    onSlowSecondsChanged: nowSec = Date.now() / 1000      // a clock left stale while the setting was off
     readonly property var slowNow: revision >= 0 ? Board.slow(session, nowSec, slowSeconds) : ({})
     Repeater {
         model: root.stations
@@ -241,10 +242,14 @@ Item {
 
     // click feedback: a brief ripple where a station was pressed. The station areas call it for
     // presses they take; the handler below catches a left press that falls through to the map.
+    property real lastPress: 0
     property int presses: 0               // ripples shown for presses, for the tests
     function pressAt(x, y) {
         var key = stationAt(x, y);
         if (key === "") return "";
+        var t = Date.now();
+        if (t - lastPress < 80) return key;       // the area and the handler can both see one press: ripple once
+        lastPress = t;
         presses++;
         ripple(pos(indexOf(key)), inkStrong, discR * 0.8, discR * 1.7, 380);
         return key;

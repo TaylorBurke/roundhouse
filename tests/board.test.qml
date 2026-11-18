@@ -480,6 +480,18 @@ QtObject {
         Board.fold(b, { sid: "other", ts: 7, ev: "ask", tool: "Bash" });
         check("waiting is per session", [sess(b).waiting, sess(b, "other").waiting], [false, true]);
 
+        // parallel calls: another call starting leaves an ask on the first open; the asked call running (or ending) closes it
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "tool_start", id: "p1", station: "shell", label: "x", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 1, ev: "ask", id: "p1", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 2, ev: "tool_start", id: "p2", station: "files", label: "y", tool: "Read" }));
+        check("parallel start keeps the ask", sess(b).waiting, true);
+        Board.fold(b, ev({ ts: 3, ev: "tool_end", id: "p2", station: "files", label: "y", tool: "Read", status: "ok" }));
+        check("parallel end keeps the ask", sess(b).waiting, true);
+        Board.fold(b, ev({ ts: 4, ev: "tool_end", id: "p1", station: "shell", label: "x", tool: "Bash", status: "ok" }));
+        check("the asked call ending closes it", [sess(b).waiting, sess(b).waitingId], [false, null]);
+        check("parseSlow zero and off", [Board.parseSlow("0"), Board.parseSlow(0), Board.parseSlow("00"), Board.parseSlow(" off "), Board.parseSlow("OFF"), Board.parseSlow(false), Board.parseSlow("0.5")], [0, 0, 0, 0, 0, 0, 0.5]);
+
         // usage heat: a station's share of the session's calls
         b = Board.newBoard();
         check("heat of nothing", [Board.heat(null, "files"), Board.heat(sess(b) || { uses: {} }, "files")], [0, 0]);
