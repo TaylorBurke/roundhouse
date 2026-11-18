@@ -205,7 +205,8 @@ Item {
                 verify(OpenList.canOpen("hooks", null, board));
                 compare(OpenList.onClick("hooks", null, board).action, "resolve");
                 OpenList.HANDLERS.hooks = { items: function () { return []; } };
-                verify(!OpenList.canOpen("hooks", null, board));
+                verify(OpenList.canOpen("hooks", null, board));              // openable; the click finds nothing
+                compare(OpenList.onClick("hooks", null, board).action, "none");
                 OpenList.HANDLERS.hooks = { always: true, action: "custom" };
                 verify(OpenList.canOpen("hooks", null, board));
                 compare(OpenList.onClick("hooks", null, board).action, "custom");
@@ -216,6 +217,29 @@ Item {
                 delete OpenList.HANDLERS.hooks;
             }
             verify(!OpenList.canOpen("hooks", null, board));
+        }
+        function test_can_open_never_calls_a_provider() {
+            var board = { openables: function () { throw new Error("must not be asked"); } };
+            var calls = 0;
+            try {
+                OpenList.HANDLERS.hooks = { can: true, items: function () { calls++; return [{ label: "h", count: 1 }]; } };
+                OpenList.HANDLERS.shell = { can: function (s) { return !!s; }, items: function () { calls++; return []; } };
+                OpenList.HANDLERS.agents = { items: function () { calls++; return []; } };
+                for (var i = 0; i < 5; i++) ["hooks", "shell", "agents"].forEach(function (k) { OpenList.canOpen(k, {}, board); });
+                compare(calls, 0);
+                verify(OpenList.canOpen("hooks", null, board));
+                verify(OpenList.canOpen("shell", {}, board));
+                verify(!OpenList.canOpen("shell", null, board));            // a cheap check can say no
+                verify(OpenList.canOpen("agents", null, board));
+                compare(OpenList.onClick("hooks", null, board).action, "resolve");
+                compare(calls, 1);                                          // the provider runs at click time
+                compare(OpenList.onClick("shell", {}, board).action, "none");
+                compare(calls, 2);
+                OpenList.HANDLERS.hooks = { can: false, items: function () { calls++; return []; } };
+                verify(!OpenList.canOpen("hooks", null, board));
+            } finally {
+                delete OpenList.HANDLERS.hooks; delete OpenList.HANDLERS.shell; delete OpenList.HANDLERS.agents;
+            }
         }
         function test_a_left_click_goes_through_the_table_as_it_did() {
             function board(items) { return { openables: function () { return items; } }; }
@@ -235,13 +259,15 @@ Item {
                 { label: "test it", status: "err", ms: 250, ts: 90 },
                 { label: "build it", status: "ok", ms: 1234, ts: 40 },
                 { label: "old", status: "blocked", ms: undefined, ts: -3500 },
-                { label: "sub call", status: "ok", ms: 7, ts: 99, agent: true }], 100);
-            compare(rows.map(function (r) { return r.text; }), ["watch it", "test it", "build it", "old", "sub call"]);
+                { label: "sub call", status: "ok", ms: 7, ts: 99, agent: "a1", agentType: "Explore" },
+                { label: "untyped", status: "ok", ms: 7, ts: 99, agent: "a2" }], 100);
+            compare(rows.map(function (r) { return r.text; }), ["watch it", "test it", "build it", "old", "sub call", "untyped"]);
             compare(rows[0].sub, "running \u00b7 now");
             compare(rows[1].sub, "err \u00b7 250ms \u00b7 10s");
             compare(rows[2].sub, "ok \u00b7 1.2s \u00b7 1m");
             compare(rows[3].sub, "blocked \u00b7 1h");
-            compare(rows[4].sub, "ok \u00b7 7ms \u00b7 now \u00b7 agent");
+            compare(rows[4].sub, "ok \u00b7 7ms \u00b7 now \u00b7 Explore");
+            compare(rows[5].sub, "ok \u00b7 7ms \u00b7 now \u00b7 agent");
             compare(OpenList.historyRows([], 100), []);
             compare(OpenList.historyRows(null, 100), []);
         }
