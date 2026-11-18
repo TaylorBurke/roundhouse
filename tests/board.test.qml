@@ -393,6 +393,49 @@ QtObject {
         check("fallback ignores bad extras", Theme.derive({ accent: "#123456", red: "#bad" }).alert, Theme.FALLBACK.alert);
         check("empty text", Theme.parseColors(null), {});
 
+        // tooltip facts: running calls longest first, last and average, station facts, the hub
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 100, ev: "session", model: "claude-sonnet-5-5" }));
+        Board.fold(b, ev({ ts: 101, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 102, ev: "tool_start", id: "n1", station: "shell", label: "sleep 9", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 110, ev: "tool_start", id: "n2", station: "shell", label: "npm test", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 120, ev: "tool_end", id: "d1", station: "shell", label: "ls", tool: "Bash", status: "ok", ms: 400 }));
+        Board.fold(b, ev({ ts: 121, ev: "tool_end", id: "d2", station: "shell", label: "make", tool: "Bash", status: "ok", ms: 2000 }));
+        var sh = Board.report(sess(b), "shell", 4, 182).lines;
+        check("facts: running longest first with elapsed", sh.slice(0, 2), ["sleep 9 \u00b7 1m20s", "npm test \u00b7 1m12s"]);
+        check("facts: last call and average", sh.slice(2), ["last: make \u00b7 2.0s", "average 1.2s over 2 calls"]);
+        check("facts: no lines for a quiet station", Board.report(sess(b), "files", 4, 182).lines, []);
+        for (var i = 0; i < 6; i++) Board.fold(b, ev({ ts: 130 + i, ev: "tool_start", id: "m" + i, station: "shell", label: "x" + i, tool: "Bash" }));
+        var capped = Board.report(sess(b), "shell", 4, 200).lines;
+        check("facts: capped and counts the rest", [capped.length <= 6, capped.indexOf("+5 more running") >= 0], [true, true]);
+        Board.fold(b, ev({ ts: 140, ev: "batch" }));
+        Board.fold(b, ev({ ts: 141, ev: "batch" }));
+        check("facts: model name and steps this turn", Board.report(sess(b), "model", 4, 150).lines, ["claude-sonnet-5-5 \u00b7 2 steps this turn"]);
+        Board.fold(b, ev({ ts: 142, ev: "compact_end" }));
+        check("facts: compactions", Board.report(sess(b), "model", 4, 150).lines[1].indexOf("1 compaction in the last") === 0, true);
+        Board.fold(b, ev({ ts: 143, ev: "tool_end", id: "w1", station: "network", label: "example.com", tool: "WebFetch", status: "ok", ms: 5 }));
+        Board.fold(b, ev({ ts: 144, ev: "tool_end", id: "w2", station: "network", label: "example.com", tool: "WebFetch", status: "ok", ms: 5 }));
+        Board.fold(b, ev({ ts: 145, ev: "tool_end", id: "w3", station: "network", label: "other.org", tool: "WebFetch", status: "ok", ms: 5 }));
+        Board.fold(b, ev({ ts: 146, ev: "tool_end", id: "w4", station: "network", label: "web search", tool: "WebSearch", status: "ok", ms: 5 }));
+        check("facts: top hosts only", Board.report(sess(b), "network", 4, 150).lines.slice(-1), ["hosts: example.com \u00d72, other.org \u00d71"]);
+        Board.fold(b, ev({ ts: 147, ev: "agent_start", agent: "a1", type: "Explore" }));
+        Board.fold(b, ev({ ts: 148, ev: "agent_start", agent: "a2", type: "Explore" }));
+        Board.fold(b, ev({ ts: 149, ev: "agent_start", agent: "a3", type: "Plan" }));
+        Board.fold(b, ev({ ts: 149.5, ev: "agent_end", agent: "a3" }));
+        check("facts: running agent types", Board.report(sess(b), "agents", 4, 150).lines.slice(-1), ["running: Explore \u00d72"]);
+        check("facts: you, nothing to wait on", Board.report(sess(b), "you", 4, 150).lines, []);
+        Board.fold(b, ev({ ts: 150, ev: "stop" }));
+        var waitLine = Board.report(sess(b), "you", 4, 160).lines;
+        var d = new Date(150000), hh = (d.getHours() < 10 ? "0" : "") + d.getHours(), mm = (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
+        check("facts: waiting on you since", waitLine, ["waiting on you since " + hh + ":" + mm]);
+        Board.fold(b, ev({ ts: 155, ev: "prompt" }));
+        check("facts: a new message ends the wait", Board.report(sess(b), "you", 4, 160).lines, []);
+        check("facts: durations", [Board.fmtMs(850), Board.fmtMs(1234), Board.fmtMs(65000), Board.fmtElapsed(3725)], ["850ms", "1.2s", "1m05s", "1h02m"]);
+        check("hub: no reading", Board.hubLines(sess(b), 0, 200), []);
+        Board.fold(b, ev({ ts: 156, ev: "context", tokens: 48213, model: "claude-sonnet-5-5" }));
+        check("hub: guessed window", Board.hubLines(sess(b), 0, 216), ["48,213 tokens of 200,000", "window from a guess (set it in settings)", "reading 1m00s old"]);
+        check("hub: configured window", Board.hubLines(sess(b), 1000000, 158).slice(0, 2), ["48,213 tokens of 1,000,000", "window from your setting"]);
+
         console.log(failures === 0 ? "board tests: all passed" : "board tests: " + failures + " FAILED");
         Qt.exit(failures === 0 ? 0 : 1);
     }

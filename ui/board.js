@@ -231,6 +231,7 @@ function fold(board, ev) {
     } else if (kind === "context") {
         sess.tokens = ev.tokens || 0;
         sess.hasContext = true;
+        sess.contextTs = ev.ts;
         sess.tokensStale = false;
         if (ev.model && !sess.switched) sess.model = ev.model;
     } else if (kind === "notify") {
@@ -303,7 +304,8 @@ function windowSize(model, tokens, override) {
 function contextOf(sess, override) {
     if (!sess || !sess.hasContext) return null;
     var size = windowSize(sess.model, sess.tokens, override);
-    return { share: Math.min(1, sess.tokens / size), size: size, stale: sess.tokensStale };
+    return { share: Math.min(1, sess.tokens / size), size: size, stale: sess.tokensStale, tokens: sess.tokens,
+             source: override ? "config" : "guessed", at: sess.contextTs || 0 };
 }
 
 // The legs of the route line as of `now` (seconds): { from, to, age, alpha }. A leg holds at
@@ -383,12 +385,95 @@ function problems(sess, key, max) {
     return out.reverse().slice(0, max || 4);
 }
 
+// ---- tooltip facts: compact lines, built from the log only ------------------------------------
+var MAX_LINES = 6;
+function clock(ts) {
+    var d = new Date(ts * 1000);
+    return (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes();
+}
+function fmtElapsed(sec) {            // "45s", "1m12s", "2h03m"
+    sec = Math.max(0, Math.floor(sec));
+    if (sec < 60) return sec + "s";
+    if (sec < 3600) return Math.floor(sec / 60) + "m" + (sec % 60 < 10 ? "0" : "") + (sec % 60) + "s";
+    return Math.floor(sec / 3600) + "h" + (Math.floor(sec % 3600 / 60) < 10 ? "0" : "") + Math.floor(sec % 3600 / 60) + "m";
+}
+function fmtMs(ms) { return ms < 1000 ? Math.round(ms) + "ms" : ms < 10000 ? (ms / 1000).toFixed(1) + "s" : fmtElapsed(ms / 1000); }
+function trim(text, n) { return text.length > n ? text.slice(0, n - 1) + "\u2026" : text; }
+function groups(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+$)/g, ","); }
+
+// Lines for one station: running calls with elapsed time (longest first), the last finished call,
+// the average duration, then the station's own facts. Names and times only.
+function factLines(sess, key, now) {
+    var lines = [], running = [], done = [];
+    sess.entries.forEach(function (e) {
+        if (e.station !== key) return;
+        if (e.status === "running" && e.id) running.push(e);
+        else if (e.ms !== undefined && e.ms !== null && e.status !== "running") done.push(e);
+    });
+    running.sort(function (a, b) { return a.ts - b.ts; });
+    running.slice(0, 3).forEach(function (e) { lines.push(trim(e.label || e.tool || "call", 28) + " \u00b7 " + fmtElapsed(now - e.ts)); });
+    if (running.length > 3) lines.push("+" + (running.length - 3) + " more running");
+    if (done.length) {
+        var total = 0;
+        done.forEach(function (e) { total += e.ms; });
+        var last = done[done.length - 1];
+        lines.push("last: " + trim(last.label || last.tool || "call", 22) + " \u00b7 " + fmtMs(last.ms));
+        lines.push("average " + fmtMs(total / done.length) + " over " + done.length + (done.length === 1 ? " call" : " calls"));
+    }
+    var since = sess.promptTs || 0;
+    if (key === "model") {
+        var steps = 0, compactions = 0;
+        sess.entries.forEach(function (e) {
+            if (e.station !== "model") return;
+            if (e.label === "next step" && e.ts >= since) steps++;
+            else if (e.label === "compacted") compactions++;
+        });
+        lines.push((sess.model || "model unknown") + " \u00b7 " + steps + (steps === 1 ? " step" : " steps") + " this turn");
+        if (compactions) lines.push(compactions + (compactions === 1 ? " compaction" : " compactions") + " in the last " + MAX_ENTRIES + " events");
+    } else if (key === "network") {
+        var hosts = {}, order = [];
+        sess.entries.forEach(function (e) {
+            if (e.station !== "network" || !/^[\w-]+(\.[\w-]+)+$/.test(e.label || "")) return;
+            if (!hosts[e.label]) { hosts[e.label] = 0; order.push(e.label); }
+            hosts[e.label]++;
+        });
+        order.sort(function (a, b) { return hosts[b] - hosts[a]; });
+        if (order.length) lines.push("hosts: " + order.slice(0, 3).map(function (h) { return trim(h, 24) + " \u00d7" + hosts[h]; }).join(", "));
+    } else if (key === "agents") {
+        var types = {};
+        Object.keys(sess.agents).forEach(function (id) {
+            if (sess.agents[id].running) types[sess.agents[id].type] = (types[sess.agents[id].type] || 0) + 1;
+        });
+        var names = Object.keys(types);
+        if (names.length) lines.push("running: " + names.slice(0, 3).map(function (t) { return trim(t, 20) + (types[t] > 1 ? " \u00d7" + types[t] : ""); }).join(", ") + (names.length > 3 ? " +" + (names.length - 3) : ""));
+    } else if (key === "you") {
+        var wait = 0;
+        sess.entries.forEach(function (e) {
+            if (e.station !== "you") return;
+            if (e.label === "new message") wait = 0;
+            else if (!wait && (e.label === "answer ready" || e.label.indexOf("notification") === 0)) wait = e.ts;
+        });
+        if (wait && !sess.ended) lines.push("waiting on you since " + clock(wait));
+    }
+    return lines.slice(0, MAX_LINES);
+}
+
+// The hub's facts: raw tokens, window size and its source, how old the reading is.
+function hubLines(sess, override, now) {
+    var c = contextOf(sess, override);
+    if (!c) return [];
+    var lines = [groups(c.tokens) + " tokens of " + groups(c.size), "window from " + (c.source === "config" ? "your setting" : "a guess (set it in settings)")];
+    if (c.at) lines.push("reading " + fmtElapsed(now - c.at) + " old");
+    return lines;
+}
+
 // Everything the tooltip says about one station.
-function report(sess, key, max) {
+function report(sess, key, max, now) {
     var s = sess && sess.stations[key];
     var dots = sess && sess.errDots[key] || 0;
-    var r = { title: LABELS[key] || key, help: HELP[key] || "", stats: [], dots: dots, problems: problems(sess, key, max), explain: "" };
+    var r = { title: LABELS[key] || key, help: HELP[key] || "", stats: [], dots: dots, problems: problems(sess, key, max), explain: "", lines: [] };
     if (!s) return r;
+    r.lines = factLines(sess, key, now === undefined ? Date.now() / 1000 : now);
     if (s.count > 0) r.stats.push(s.count + " of the last " + MAX_ENTRIES + " events");
     var uses = sess.uses[key] || 0;
     if (uses > 0) r.stats.push(uses + (uses === 1 ? " call" : " calls") + " this session");
@@ -476,4 +561,4 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };

@@ -528,9 +528,9 @@ Item {
             return { title: "Context window",
                      help: "How much of the model's context window this session has used. The ring turns amber from 70% and red from 90%; the oldest turns are compacted when it fills.",
                      stats: c ? [percentLabel() + (c.stale ? " (out of date: a compaction since the last reading)" : "")] : ["no reading yet"],
-                     dots: 0, problems: [], explain: "" };
+                     dots: 0, problems: [], explain: "", lines: Board.hubLines(session, windowSetting, Date.now() / 1000) };
         }
-        return Board.report(session, key, 4);
+        return Board.report(session, key, 4, Date.now() / 1000);
     }
     readonly property var tip: tipShown && !listOpen && hoverKey !== "" && revision >= 0 ? tipFor(hoverKey) : null
     readonly property point tipAnchor: indexOf(hoverKey) >= 0 ? pos(indexOf(hoverKey)) : Qt.point(cx, cy)
@@ -603,6 +603,13 @@ Item {
                 visible: text !== ""
                 text: root.tip ? root.tip.stats.join("  ·  ") : ""
                 color: root.faint; wrapMode: Text.Wrap; font.family: "monospace"; font.pixelSize: 11
+            }
+            Text {
+                width: parent.width
+                visible: text !== ""
+                textFormat: Text.PlainText
+                text: root.tip && root.tip.lines ? root.tip.lines.join("\n") : ""
+                color: root.ink; wrapMode: Text.Wrap; font.family: "monospace"; font.pixelSize: 11
             }
             Text {
                 width: parent.width

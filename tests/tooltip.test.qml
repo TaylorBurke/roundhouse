@@ -89,6 +89,34 @@ Item {
             compare(tip().visible, true);
             verify(all().indexOf("Context window") >= 0);
         }
+        function test_a_running_call_shows_its_elapsed_time() {
+            var now = Date.now() / 1000;
+            parent.fold({ ts: now - 72, ev: "tool_start", id: "q1", station: "shell", label: "npm test", tool: "Bash" });
+            parent.fold({ ts: now - 5, ev: "tool_start", id: "q2", station: "shell", label: "ls", tool: "Bash" });
+            parent.fold({ ts: now - 3, ev: "tool_end", id: "q3", station: "shell", label: "make", tool: "Bash", status: "ok", ms: 2000 });
+            hover("shell");
+            var t = all();
+            verify(t.indexOf("npm test \u00b7 1m1") >= 0 || t.indexOf("npm test \u00b7 1m2") >= 0);
+            verify(t.indexOf("npm test") < t.indexOf("ls \u00b7"));       // longest first
+            verify(t.indexOf("last: make \u00b7 2.0s") >= 0);
+            verify(t.indexOf("average 2.0s over 1 call") >= 0);
+            verify(tip().width <= 260 && tip().x + tip().width <= map.width);
+        }
+        function test_a_station_shows_its_facts() {
+            parent.fold({ ts: 3, ev: "batch" });
+            hover("model");
+            verify(all().indexOf("claude-sonnet-5-5 \u00b7 1 step this turn") >= 0);
+        }
+        function test_the_hub_shows_tokens_window_and_age() {
+            parent.fold({ ts: Date.now() / 1000 - 120, ev: "context", tokens: 48213, model: "claude-sonnet-5-5" });
+            mouseMove(map, map.cx, map.cy);
+            wait(450);
+            var t = all();
+            verify(t.indexOf("48,213 tokens of 200,000") >= 0);
+            verify(t.indexOf("window from a guess") >= 0);
+            verify(t.indexOf("reading 2m") >= 0);
+            verify(tip().y >= 0 && tip().y + tip().height <= map.height);
+        }
         function test_leaving_hides_it_and_it_stays_inside_the_map() {
             hover("agents");
             compare(tip().visible, true);

@@ -170,7 +170,11 @@ What moves and what it means:
 - **A red dot with a count**: errors and refusals since your last prompt. Hooks counts refusals.
 - **Hover a node** (or the hub) for a tooltip: what the station stands for, its counts, and, when it
   wears a red dot, which calls are behind it, marked failed or refused (a refused call counts at its own
-  station and at Hooks). Call names show on screen only; nothing is written.
+  station and at Hooks). It also lists running calls with how long they have run (longest first, e.g.
+  `npm test · 1m12s`), the last call and the average duration there, and a few facts per station: Model
+  (name, steps this turn, compactions), Network (top hosts), Agents (running types), You ("waiting on you
+  since 12:03"). The hub shows the raw token count, the window size and whether it comes from your
+  setting or is a guess, and how old the reading is. Call names show on screen only; nothing is written.
 - **Click Files, Memory or Skills** (the station has a faint backlight, and the pointer turns into a hand,
   when there is something to open). **Files** and **Skills** open the file behind a name in your editor
   (`omarchy launch editor`; pictures, video, audio and PDFs go to your default viewer): one name opens
