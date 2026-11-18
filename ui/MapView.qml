@@ -514,7 +514,7 @@ Item {
     property bool listOpen: false         // the window shows a list beside a station: no tooltip then
     function canOpen(key) {
         if (revision < 0 || !session) return false;
-        return Clicks.canOpen(key, Board.openables(session, key, 1));
+        return Clicks.canOpen(key, session, Board);
     }
 
     property string hoverKey: ""          // the station under the pointer, "hub" for the hub, else ""

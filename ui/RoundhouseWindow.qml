@@ -170,10 +170,11 @@ FloatingWindow {
     // two clicks in a row never mix their results).
     property int lookupSeq: 0
     function closeList() { lookupSeq++; listMode = ""; noteTimer.stop(); }
-    onShownSidChanged: closeList()
+    onShownSidChanged: { closeList(); clearToast(); }
+    onListModeChanged: if (listMode !== "") clearToast()      // a list and a toast never show together
 
     function nodeClicked(key, anchor) {
-        var d = OpenList.onClick(key, Board.openables(session, key, 12));
+        var d = OpenList.onClick(key, session, Board);
         if (d.action === "none") return;
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;
@@ -185,12 +186,12 @@ FloatingWindow {
     // toast when there are none. The rows are a snapshot of the moment of the click.
     function nodeRightClicked(key, anchor) {
         var calls = Board.history(session, key, 10);
-        listKey = key; listAnchor = anchor;
         if (calls.length === 0) {
             closeList();
             toast("Nothing at " + Board.report(null, key).title + " yet");
             return;
         }
+        listKey = key; listAnchor = anchor;
         lookupSeq++; listItems = []; listPaths = [];
         listTitle = Board.report(null, key).title + " \u00b7 recent";
         listRowsView = OpenList.historyRows(calls, now());
@@ -255,6 +256,7 @@ FloatingWindow {
     // A short note for "nothing to open" and the like. A new one replaces the one showing.
     property string toastText: ""
     function toast(text) { toastText = text; toastTimer.restart(); }
+    function clearToast() { toastText = ""; toastTimer.stop(); }
     Timer { id: toastTimer; interval: 2500; onTriggered: win.toastText = "" }
     Rectangle {
         objectName: "toast"
@@ -285,6 +287,7 @@ FloatingWindow {
         title: win.listTitle
         rows: win.listRowsView
         message: win.listMode === "note" ? win.listNote : ""
+        interactive: win.listMode !== "history"
         elideMode: win.listMode === "paths" ? Text.ElideLeft : Text.ElideRight
         bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; edge: theme.discEdge
         readonly property point at: Qt.point(map.x + win.listAnchor.x, map.y + win.listAnchor.y)

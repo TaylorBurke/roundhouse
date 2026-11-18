@@ -365,7 +365,9 @@ QtObject {
         check("history of a quiet station", Board.history(sess(b), "network", 10), []);
         check("history without a session", [Board.history(null, "shell", 10), Board.history(undefined, "shell", 10)], [[], []]);
         check("history keeps only what the log has",
-              Object.keys(Board.history(sess(b), "files", 1)[0]).sort(), ["label", "ms", "status", "ts"]);
+              Object.keys(Board.history(sess(b), "files", 1)[0]).sort(), ["agent", "label", "ms", "status", "ts"]);
+        Board.fold(b, ev({ ts: 5.5, ev: "tool_end", id: "ag1", station: "files", label: "sub/x.md", tool: "Read", status: "ok", ms: 3, agent: "a1" }));
+        check("history marks a subagent's call", Board.history(sess(b), "files", 10).map(function (h) { return h.agent; }), [true, false]);
         Board.fold(b, ev({ ts: 6, ev: "prompt" }));
         check("history has the notes too", Board.history(sess(b), "you", 10).map(function (h) { return h.label; }), ["new message"]);
         for (i = 0; i < 20; i++) Board.fold(b, ev({ ts: 10 + i, ev: "tool_end", id: "m" + i, station: "network", label: "n" + i, tool: "WebFetch", status: "ok", ms: 5 }));
