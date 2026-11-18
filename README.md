@@ -60,6 +60,12 @@ One exception to "names only", and only on screen: if you use claude-strip, a se
 shows the strip's task title (a summary of your prompts; see "The session header"). It is read
 from the strip's own file, shown, and never written to roundhouse's log.
 
+A second one, also only on screen: clicking **Model** opens a turn panel. It reads the session's
+transcript (`~/.claude/projects/...jsonl`) at the click and shows each step's think time, tokens, tools
+and, when the transcript has one, the model's reasoning summary (cut to 400 characters; the last 8 steps).
+That text lives only in the panel until you close it: it is never written to roundhouse's log, never put
+in a command line, and the transcript is only read, never changed.
+
 ## Install
 
 ```bash
@@ -205,7 +211,14 @@ What moves and what it means:
   that used the Claude-in-Chrome extension (with or without devtools), Playwright or the like gets your
   everyday browser windows. Window level only: **tab selection is not possible**, because Chrome has no
   external API to activate a tab (see #60). A window's title is the active tab's page title; it shows on
-  screen only and is never stored. Other stations do nothing on a left click yet.
+  screen only and is never stored.
+  **Model** opens a small read-only panel for the current turn, read
+  from the transcript at the click (`tools/transcript.py turn`): per step the think time, tokens in and
+  out, the tools called and the reasoning summary (or "redacted"), the last 8 steps. A one-line note says
+  when the numbers may be incomplete (a huge transcript read from its tail, output capped, or an id that
+  matches several sessions). "Open the raw transcript" hands that one `.jsonl` (found by the tool, a regular
+  file inside `~/.claude/projects`) to the editor. No transcript: a toast. Other stations do nothing on a
+  left click yet.
 - **Right-click any station** for its recent calls: up to ten, newest first, each with its name,
   status (`ok`, `err`, `blocked`, `running`), how long it took and how long ago it started, and the
   subagent's type (`agent` if unknown) for a call a subagent made. It covers the last 80 events of the session, so older calls are gone. A station

@@ -498,6 +498,25 @@ class Cli(World):
         for args in ([], ["turn"], ["turn", "short"], ["nope", SID], ["path", SID, "../x"], ["turn", SID, "a", "b"]):
             self.assertEqual(self.run_cli(*args).returncode, 2, args)
 
+    def test_open_hands_only_the_located_transcript_to_the_editor(self):
+        path = self.session([prompt(), *call("m1", [tool("Read")])])
+        opened = []
+        saved = openable.open_file
+        openable.open_file = lambda p: opened.append(p) or True
+        try:
+            self.assertTrue(transcript.open_transcript(SID))
+            self.assertFalse(transcript.open_transcript("zzzzzzzz"))
+            with self.assertRaises(ValueError):
+                transcript.open_transcript("../../etc/passwd")
+        finally:
+            openable.open_file = saved
+        self.assertEqual(opened, [os.path.realpath(path)])
+
+    def test_open_cli_reports_not_found_and_refuses_bad_arguments(self):
+        self.assertEqual(self.run_cli("open", SID).returncode, 1)
+        self.assertEqual(self.run_cli("open", "short").returncode, 2)
+        self.assertEqual(self.run_cli("open", SID, "../x").returncode, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

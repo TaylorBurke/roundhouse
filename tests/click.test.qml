@@ -86,7 +86,7 @@ Item {
             read("s", "skills", "omarchy", "Skill");
             compare(lit("files"), true);
             compare(lit("skills"), true);
-            ["you", "model", "shell", "network", "browser", "agents", "hooks"].forEach(function (k) { compare(lit(k), false, k); });
+            ["you", "shell", "network", "browser", "agents", "hooks"].forEach(function (k) { compare(lit(k), false, k); });
         }
         function test_the_backlight_is_a_quiet_ring_not_the_busy_glow() {
             read("a", "files", "src/app.ts");
@@ -152,7 +152,7 @@ Item {
         function test_other_stations_never_react_even_with_calls_behind_them() {
             read("sh", "shell", "build it", "Bash");
             read("n", "network", "web search", "WebSearch");               // Network reacts only to hosts and MCP servers
-            ["shell", "network", "you", "model", "agents", "hooks"].forEach(function (k) {
+            ["shell", "network", "you", "agents", "hooks"].forEach(function (k) {
                 compare(area(k).cursorShape, Qt.ArrowCursor, k);
                 mouseClick(map, station(k).x, station(k).y);
             });
