@@ -365,9 +365,12 @@ QtObject {
         check("history of a quiet station", Board.history(sess(b), "network", 10), []);
         check("history without a session", [Board.history(null, "shell", 10), Board.history(undefined, "shell", 10)], [[], []]);
         check("history keeps only what the log has",
-              Object.keys(Board.history(sess(b), "files", 1)[0]).sort(), ["agent", "label", "ms", "status", "ts"]);
+              Object.keys(Board.history(sess(b), "files", 1)[0]).sort(), ["agent", "agentType", "label", "ms", "status", "ts"]);
         Board.fold(b, ev({ ts: 5.5, ev: "tool_end", id: "ag1", station: "files", label: "sub/x.md", tool: "Read", status: "ok", ms: 3, agent: "a1" }));
-        check("history marks a subagent's call", Board.history(sess(b), "files", 10).map(function (h) { return h.agent; }), [true, false]);
+        check("history marks a subagent's call", Board.history(sess(b), "files", 10).map(function (h) { return h.agent; }), ["a1", null]);
+        check("history has no type for an agent that never started", Board.history(sess(b), "files", 10)[0].agentType, undefined);
+        Board.fold(b, ev({ ts: 5.55, ev: "agent_start", type: "Explore", agent: "a1" }));
+        check("history carries the subagent's type", Board.history(sess(b), "files", 10).map(function (h) { return h.agentType; }).slice(0, 1), ["Explore"]);
         Board.fold(b, ev({ ts: 6, ev: "prompt" }));
         sess(b).entries.push({ ts: 5.6, station: "files", label: "odd", status: "ok", ms: null });
         check("history turns a null duration into none", Board.history(sess(b), "files", 1)[0].ms, undefined);

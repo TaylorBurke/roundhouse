@@ -175,7 +175,11 @@ FloatingWindow {
 
     function nodeClicked(key, anchor) {
         var d = OpenList.onClick(key, session, Board);
-        if (d.action === "none") return;
+        if (d.action === "none") {       // openable by the cheap check, but the click-time lookup found nothing
+            closeList();
+            toast("Nothing to open at " + Board.report(null, key).title + " yet");
+            return;
+        }
         clearToast();
         listKey = key; listAnchor = anchor;
         listTitle = Board.report(null, key).title;

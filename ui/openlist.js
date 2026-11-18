@@ -3,12 +3,23 @@
 // What a click on a map station does, and what happens when the on-disk lookup answers.
 
 // What a left click does at each station that has something to open. A later ticket gives its
-// station an entry here instead of editing a shared switch. An entry says where its items come from:
-// `names` (the names Board.openables finds), `always` (there is always something, no lookup of
-// names), or `items(sess, key, max)` (its own provider, returning a list); and what the window does
-// with a click: `action` (for an entry that is not a list of names). An `always` entry must name an
-// `action`, or it is not openable (a hand cursor over something that does nothing). A station with
-// no entry reacts to a right click only (its recent calls), and nothing is computed for it.
+// station an entry here instead of editing a shared switch.
+//
+// The contract has two halves, because the map asks "can this open?" for every station on every log
+// event, while "what is there?" is only needed when the user clicks:
+//   can    -- decides whether the station shows a hand cursor. It MUST be cheap: no disk, no process
+//             (hyprctl, git, ...), no provider that scales with the log. `true` (a static flag), or
+//             `can(sess, key, board)` returning a boolean from what is already in memory.
+//   items  -- `items(sess, key, max, board)`, the list behind a click. Called ONLY at click time, so
+//             it may read the disk or ask hyprctl. If it finds nothing, the click shows a toast
+//             ("nothing found") instead of doing anything silent; never make `can` look ahead for it.
+//   names  -- shorthand for "the names Board.openables finds in memory" (items and can both use it).
+//   always -- there is always something (no lookup), together with an `action`.
+//   action -- what the window does with a click, for an entry that is not a list of names. An
+//             `always` entry must name an `action`, or it is not openable.
+// An entry with `items` and no `can` counts as openable (a constant-time answer; nothing is looked up
+// until the click). A station with no entry reacts to a right click only (its recent calls), and
+// nothing is computed for it.
 var HANDLERS = {
     files: { names: true },
     memory: { always: true, action: "memory" },     // the project's memory files are there without a call
@@ -24,12 +35,14 @@ function itemsOf(key, sess, board, max) {
     return h.names ? board.openables(sess, key, max) : [];
 }
 
-// Whether a left click at `key` leads anywhere: it has an entry, and something to open.
+// Whether a left click at `key` leads anywhere. Cheap by contract: never calls a handler's `items`.
 function canOpen(key, sess, board) {
     var h = HANDLERS[key];
     if (!h) return false;
     if (h.always) return !!h.action;
-    return itemsOf(key, sess, board, 1).length > 0;
+    if (h.can !== undefined) return typeof h.can === "function" ? !!h.can(sess, key, board) : !!h.can;
+    if (h.items) return true;
+    return !!h.names && board.openables(sess, key, 1).length > 0;
 }
 
 // What a left click at `key` means: its entry's own action, else what onNode makes of its items.
@@ -185,7 +198,7 @@ function ageLabel(seconds) {
 }
 
 // Recent calls (Board.history) as list rows: the name, and beside it the status, how long it took
-// and how long ago it started, and "agent" for a call a subagent made. A call still running has no
+// and how long ago it started, and the subagent's type ("agent" if unknown) for a call a subagent made. A call still running has no
 // duration yet.
 function historyRows(calls, now) {
     return (calls || []).map(function (c) {
@@ -193,7 +206,7 @@ function historyRows(calls, now) {
         if (c.status !== "running" && c.ms !== undefined && c.ms !== null) parts.push(durationLabel(c.ms));
         var age = ageLabel(Math.max(0, now - c.ts));
         if (age !== "") parts.push(age);
-        if (c.agent) parts.push("agent");
+        if (c.agent) parts.push(c.agentType || "agent");
         return { text: c.label || "", sub: parts.join(" \u00b7 ") };
     });
 }

@@ -422,14 +422,14 @@ function openables(sess, key, max) {
 }
 
 // The recent calls at a station, newest first, at most `max`: { label, status, ms, ts } (`ms` is
-// undefined while a call runs or when none was recorded; `agent` is true for a subagent's call).
+// undefined while a call runs or when none was recorded; `agent` is the subagent's id for its call, else null; `agentType` is its type when known).
 // Only the last MAX_ENTRIES events are kept, so that is as far back as it goes. Names only: the labels the log carries,
 // shown on screen, never written. Right-click on any station lists these.
 function history(sess, key, max) {
     if (!sess) return [];
     var out = [];
     sess.entries.forEach(function (e) {
-        if (e.station === key) out.push({ label: e.label, status: e.status, ms: e.ms === null ? undefined : e.ms, ts: e.ts, agent: !!e.agent });
+        if (e.station === key) out.push({ label: e.label, status: e.status, ms: e.ms === null ? undefined : e.ms, ts: e.ts, agent: e.agent || null, agentType: e.agent && sess.agents[e.agent] ? sess.agents[e.agent].type : undefined });
     });
     return out.reverse().slice(0, max || 10);
 }
