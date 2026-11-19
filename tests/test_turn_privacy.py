@@ -31,7 +31,7 @@ class TurnPanelNeverRunsTranscriptText(unittest.TestCase):
     def test_commands_are_built_from_the_session_id_only(self):
         for name in ("turnArgs", "openArgs"):
             self.assertRegex(function_body(self.turn_js, name), r"^function \w+\(script, sid\) \{ return \[\"python3\", \"-I\", script, \"\w+\", sid\]; \}$")
-        for name in ("showTurn", "openTranscript"):
+        for name in ("showTurn", "openSessionTranscript"):
             body = function_body(self.window, name)
             self.assertIn("shownSid", body)
             self.assertNotIn("turnView", body)

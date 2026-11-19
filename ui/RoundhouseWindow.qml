@@ -329,7 +329,7 @@ FloatingWindow {
         }
         turnView = t; listMode = "turn";
     }
-    function openTranscript() {
+    function openSessionTranscript() {
         var ok = Turn.validSid(shownSid);
         closeList();
         if (!ok) { toast("Could not open the transcript"); return; }
@@ -573,7 +573,7 @@ FloatingWindow {
         bg: theme.bg; ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint; accent: theme.accent; edge: theme.discEdge
         x: (parent.width - width) / 2
         y: Math.max(8, (parent.height - height) / 2)
-        onOpenRaw: win.openTranscript()
+        onOpenRaw: win.openSessionTranscript()
     }
 
     ContextPanel {
