@@ -31,7 +31,7 @@ class TurnPanelNeverRunsTranscriptText(unittest.TestCase):
     def test_commands_are_built_from_the_session_id_only(self):
         for name in ("turnArgs", "openArgs"):
             self.assertRegex(function_body(self.turn_js, name), r"^function \w+\(script, sid\) \{ return \[\"python3\", \"-I\", script, \"\w+\", sid\]; \}$")
-        for name in ("showTurn", "openTranscript"):
+        for name in ("showTurn", "openSessionTranscript"):
             body = function_body(self.window, name)
             self.assertIn("shownSid", body)
             self.assertNotIn("turnView", body)
@@ -44,7 +44,7 @@ class TurnPanelNeverRunsTranscriptText(unittest.TestCase):
         self.assertIn("Turn.parse(text)", body)
 
     def test_no_shell_and_no_logging_in_the_turn_code(self):
-        code = self.turn_js + self.panel + function_body(self.window, "showTurn") + function_body(self.window, "openTranscript") \
+        code = self.turn_js + self.panel + function_body(self.window, "showTurn") + function_body(self.window, "openSessionTranscript") \
             + function_body(self.window, "turnAnswered")
         for bad in ("bash", "\"sh\"", "-c\"", "eval(", "console.", "FileView", "Qt.openUrlExternally", "Quickshell.exec(", "localStorage"):
             self.assertNotIn(bad, code)
