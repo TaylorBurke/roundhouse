@@ -173,6 +173,15 @@ FloatingWindow {
     property point listAnchor: Qt.point(0, 0)
     property string lookingFor: ""
     readonly property string home: Quickshell.env("HOME") || ""
+    readonly property string launchAbs: strip && strip.cwd ? strip.cwd.replace(/\/+$/, "") : ""
+    // Where the session was launched (the strip's cwd), relative to home; outside home, absolute.
+    readonly property string launchPath: {
+        var c = strip && strip.cwd ? strip.cwd.replace(/\/+$/, "") : "";
+        if (c === "") return "";
+        if (home !== "" && c === home) return "~";
+        if (home !== "" && c.indexOf(home + "/") === 0) return c.substring(home.length + 1);
+        return c;
+    }
 
     // Each lookup has a number. Closing the list, a new lookup or another session retires the current
     // one: its answer, whenever it arrives, is ignored (so a cancelled click never opens a file, and
@@ -590,11 +599,25 @@ FloatingWindow {
     }
 
     Feed {
-        anchors { left: parent.left; right: parent.right; top: bar.bottom; bottom: parent.bottom; margins: 12; topMargin: 6 }
+        anchors { left: parent.left; right: parent.right; top: bar.bottom; bottom: launchNote.visible ? launchNote.top : parent.bottom; margins: 12; topMargin: 6 }
         clip: true
         session: win.session
         revision: win.tail.revision
         ink: theme.ink; inkStrong: theme.inkStrong; faint: theme.faint
         accent: theme.accent; alert: theme.alert
+    }
+
+    Text {
+        id: launchNote
+        objectName: "launchNote"
+        visible: win.launchPath !== ""
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; leftMargin: 12; rightMargin: 12; bottomMargin: 6 }
+        text: win.launchPath; textFormat: Text.PlainText
+        elide: Text.ElideMiddle
+        color: theme.faint; font.family: "monospace"; font.pixelSize: 10
+        // A click copies the absolute path (not the shown one), so cd "<paste>" works from any directory.
+        Process { id: copyPath; command: ["wl-copy", "--", win.launchAbs] }
+        TapHandler { onTapped: { copyPath.running = true; win.toast("copied " + win.launchAbs); } }
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
     }
 }
