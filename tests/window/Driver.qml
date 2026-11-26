@@ -16,8 +16,7 @@ Item {
     readonly property string stubLog: Quickshell.env("RH_STUB_LOG") || ""
 
     TestEvent { id: ev }
-    // The window's root item cannot be grabbed; a copy of it drawn off to the side can.
-    property var mirror: null
+    // The window's root item cannot be grabbed; a copy of it drawn off to the side can (made per picture).
     Component { id: mirrorC; ShaderEffectSource { x: -100000; recursive: true; live: true; hideSource: false } }
 
     function log(s) { console.log("RH-TEST " + s); }
@@ -66,48 +65,48 @@ Item {
           },
           check: function () { return one().session ? "" : "the single-session window has no session"; } },
         { name: "left click on Files lists the names the session read", ms: 3000,
-          act: function () { station("files"); },
+          act: function () { return station("files"); },
           ready: function () { return one().listMode === "items"; },
           check: function () { return eq(rows(), ["src/a.ts", "src/b.ts"]); } },   // newest first
         { name: "a click on a name opens the file it resolves to", ms: 8000,
-          act: function () { row(0); },
+          act: function () { return row(0); },
           ready: function () { return stubCalls().indexOf("omarchy launch editor") >= 0; },
           check: function () {
               if (one().listMode !== "") return "the list stayed open (" + one().listMode + ")";
               return stubCalls().indexOf("/Work/proj/src/a.ts") >= 0 ? "" : "editor not asked for src/a.ts: " + stubCalls();
           } },
         { name: "left click on Memory lists the project's memory files, the read one tagged", ms: 8000,
-          act: function () { station("memory"); },
+          act: function () { return station("memory"); },
           ready: function () { return one().listMode === "paths"; },
           check: function () { return eq(rows(), ["notes.md [read]", "MEMORY.md", "other.md"]); } },
         { name: "a click away closes the list", ms: 2000,
-          act: function () { var w = one(); click(item("clickAway"), Qt.LeftButton, 10, w.height - 10); },
+          act: function () { var w = one(); return click(item("clickAway"), Qt.LeftButton, 10, w.height - 10); },
           ready: function () { return one().listMode === ""; },
           check: function () { return ""; } },
         { name: "right click on Shell lists its recent calls", ms: 2000,
-          act: function () { station("shell", Qt.RightButton); },
+          act: function () { return station("shell", Qt.RightButton); },
           ready: function () { return one().listMode === "history"; },
           check: function () { return eq(one().listRowsView.length, 1); } },
         { name: "right click on another station with the list open moves the list there", ms: 2000,
           act: function () { var w = one(), m = item("map"), p = m.pos(m.indexOf("files"));
-                             click(item("clickAway"), Qt.RightButton, m.x + p.x, m.y + p.y); },
+                             return click(item("clickAway"), Qt.RightButton, m.x + p.x, m.y + p.y); },
           ready: function () { return one().listKey === "files" && one().listMode === "history"; },
           check: function () { return ""; } },
         { name: "left click on Hooks lists the configured hooks", ms: 8000,
-          act: function () { one().closeList(); station("hooks"); },
+          act: function () { one().closeList(); return station("hooks"); },
           ready: function () { return one().listMode === "hooks"; },
           check: function () { return rows().length > 0 ? "" : "no rows"; } },
         { name: "a click on the hub with no transcript says so", ms: 8000,
-          act: function () { one().closeList(); click(item("hub")); },
+          act: function () { one().closeList(); return click(item("hub")); },
           ready: function () { return one().toastText !== ""; },
           check: function () { return eq(one().toastText, "No transcript found for this session"); } },
         { name: "left click on You with no terminal known says so", ms: 2000,
-          act: function () { one().clearToast(); station("you"); },
+          act: function () { one().clearToast(); return station("you"); },
           ready: function () { return one().toastText !== ""; },
-          check: function () { return one().listMode === "" ? "" : "a list opened: " + one().listMode; } },
+          check: function () { return one().listMode !== "" ? "a list opened: " + one().listMode : eq(one().toastText, "No terminal known for this session"); } },
         { name: "the all-sessions window shows the session too", ms: 2000,
           ready: function () { return win("all").shownSid === one().sid; },
-          check: function () { return ""; } }
+          check: function () { return eq(one().sid, "abcd1234"); } }
     ]
 
     property int at: -1
@@ -124,9 +123,10 @@ Item {
         var w = one();
         if (shots === "" || !w || !w.contentItem) { then(); return; }
         var file = shots + "/" + String(at).padStart(2, "0") + "-" + name.replace(/[^A-Za-z0-9]+/g, "-").replace(/-+$/, "") + ".png";
-        if (!d.mirror) d.mirror = mirrorC.createObject(w.contentItem, { sourceItem: w.contentItem, width: w.contentItem.width, height: w.contentItem.height });
-        var ok = d.mirror.grabToImage(function (r) { if (!r.saveToFile(file)) d.log("NOTE could not save " + file); then(); });
-        if (!ok) { d.log("NOTE could not grab the window"); then(); }
+        var m = mirrorC.createObject(w.contentItem, { sourceItem: w.contentItem, width: w.contentItem.width, height: w.contentItem.height });
+        var done = function () { if (m) m.destroy(); then(); };
+        var ok = !!m && m.grabToImage(function (r) { if (!r.saveToFile(file)) d.log("NOTE could not save " + file); done(); });
+        if (!ok) { d.log("NOTE could not grab the window"); done(); }
     }
     Timer {
         id: pump
@@ -137,7 +137,8 @@ Item {
             var s = d.steps[d.at];
             var ready = false;
             try {
-                if (!d.acted) { d.acted = true; if (s.act) s.act(); return; }
+                // an act that could not click (its item missing or not shown) fails at once, not by a timeout
+                if (!d.acted) { d.acted = true; if (s.act && s.act() === false) { d.log("FAIL " + s.name + ": could not click"); d.next(); } return; }
                 ready = s.ready();
             } catch (e) { d.log("FAIL " + s.name + ": " + e); d.next(); return; }
             if (!ready && Date.now() - d.since < s.ms) return;

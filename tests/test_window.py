@@ -152,16 +152,19 @@ class RealWindow(unittest.TestCase):
         self.assertGreaterEqual(len([r for r in results if r.startswith("PASS")]), 11, "\n".join(results))
 
     def test_a_window_that_does_not_load_fails(self):
-        # the check itself: a duplicate function (the #80 breakage) must make the run fail, not pass quietly
+        # the check itself: a duplicate function (the #80 breakage) must be caught for what it is
         broken = os.path.join(self.conf, "ui", "RoundhouseWindow.qml")
         with open(broken, encoding="utf-8") as f:
             src = f.read()
-        os.unlink(broken)
-        write(broken, src.replace("    function now() {", "    function closeList() {}\n    function now() {", 1))
-        out = self.run_service(timeout=15)
-        self.assertTrue(BAD.search(out) or "RH-TEST DONE" not in out, out[-2000:])
+        planted = src.replace("    function now() {", "    function closeList() {}\n    function now() {", 1)
+        self.assertNotEqual(planted, src, "the anchor for the planted duplicate is gone: update this test")
+        os.unlink(broken)                            # a link to the real file: replace the link, not the file
+        write(broken, planted)
+        out = self.run_service(timeout=20)
+        self.assertIn("Failed to load configuration", out, out[-2000:])
+        self.assertIn("Duplicate method name", out, out[-2000:])
+        self.assertTrue(BAD.search(out))
         self.assertNotIn("RH-TEST DONE", out)
-
 
 if __name__ == "__main__":
     unittest.main()
