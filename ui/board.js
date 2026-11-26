@@ -555,6 +555,24 @@ function openables(sess, key, max) {
     return out.slice(0, max || 12);
 }
 
+// What this session did to each memory file, keyed by its label (the path's last two parts):
+// { edited, ts }, `edited` when a Write or Edit went through, else it was only read; `ts` is the newest
+// such call. Only finished calls count (not one still running or waiting on a permission ask, nor one
+// that failed or was refused), and only the last MAX_ENTRIES events are kept. Memory recalled at the
+// start makes no call, so it is not here. The Memory list tags and raises these files.
+function memoryTouches(sess) {
+    var out = Object.create(null);
+    if (!sess) return out;
+    sess.entries.forEach(function (e) {
+        if (e.station !== "memory" || FILE_TOOLS.indexOf(e.tool) < 0 || e.status !== "ok") return;
+        if (!e.label || e.label === e.tool || e.label.charAt(e.label.length - 1) === "…") return;
+        var t = out[e.label] || (out[e.label] = { edited: false, ts: 0 });
+        if (e.tool !== "Read") t.edited = true;
+        if (e.ts >= t.ts) t.ts = e.ts;
+    });
+    return out;
+}
+
 // The recent calls at a station, newest first, at most `max`: { label, status, ms, ts } (`ms` is
 // undefined while a call runs or when none was recorded; `agent` is the subagent's id for its call, else null; `agentType` is its type when known).
 // Only the last MAX_ENTRIES events are kept, so that is as far back as it goes. Names only: the labels the log carries,

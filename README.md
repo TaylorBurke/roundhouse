@@ -201,9 +201,13 @@ What moves and what it means:
   keeps no full paths, so the name is looked up on disk at the click: under the session's folder (known
   when claude-strip runs), then Claude's scratch folder, then anywhere under your home folder (not
   Claude's own plugin and transcript folders); skills are looked up in `~/.claude/skills` and the plugin
-  folders. **Memory** is always clickable: it lists this project's own memory files (`MEMORY.md` first,
-  then the others, newest first), whether or not the session has touched any, since memory is loaded at
-  the start without a tool call. Only names are read, and only an existing file in your home folder or
+  folders. **Memory** is always clickable: it lists this project's own memory files, whether or not the
+  session has touched any, since memory is loaded at the start without a tool call. The ones this
+  session read or edited with the file tools come first, tagged `read` or `edited`; then `MEMORY.md`
+  and the rest, newest first. A file read from the shell (`cat`) or recalled automatically gets no tag
+  (the log knows no file name for those), and only the log's last 80 entries are looked at. A tag goes
+  by the last two parts of the path, so reading another project's `memory/MEMORY.md` tags this one's
+  too. Only names are read, and only an existing file in your home folder or
   Claude's scratch folder is ever handed to the editor or viewer (a symlink in a project that points
   outside is refused; skills and plugin folders may link elsewhere, as they usually do); nothing is
   executed. **Network** lists the distinct hosts (from web fetches) and MCP servers behind its entries,
