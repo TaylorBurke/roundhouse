@@ -452,8 +452,8 @@ FloatingWindow {
     // same way; if 2 s later it still has not reported, `done` is called anyway, with `stuck` true when the
     // process is still running (the job then stays until it ends). So a busy flag cleared in `done` is
     // always cleared. `end()`, if given, is called when the job is gone: after `done`, and for a stuck
-    // process only once it has really ended, so a caller that must never overlap runs (the drafts) clears
-    // its flag there. A job that cannot be created returns null, after calling `done` (code -1) and `end`.
+    // process only once it has really ended (or the window closes), so a caller that must never overlap
+    // runs (the drafts) clears its flag there. A job that cannot be created returns null, after calling `done` (code -1) and `end`.
     function runJob(command, limit, done, end) {
         var job = jobC.createObject(win.contentItem, { command: command, limit: limit, done: done, end: end || null });
         if (!job) {

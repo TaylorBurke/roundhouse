@@ -114,9 +114,10 @@ Item {
           ready: function () { return !!d.jobR; },
           check: function () { return eq(d.jobR, { code: 3, out: "hi\n", err: "oops\n", late: false, stuck: false }); } },
         { name: "a job past its limit is stopped and reported late", ms: 5000,
-          act: function () { d.jobR = null; d.t0 = Date.now(); return !!one().runJob(["sleep", "30"], 300, function (r) { d.jobR = r; }); },
+          act: function () { d.jobR = null; d.t0 = Date.now(); return !!one().runJob(["sleep", "30"], 300, function (r) { d.jobR = r; d.jobAt = Date.now(); }); },
           ready: function () { return !!d.jobR; },
-          check: function () { return d.jobR.late && !d.jobR.stuck ? "" : "got " + JSON.stringify(d.jobR); } },
+          // well before the 2 s fallback (limit + 2000 = 2300 ms): the limit itself stopped it
+          check: function () { var ms = d.jobAt - d.t0; return d.jobR.late && !d.jobR.stuck && ms < 2000 ? "" : "got " + JSON.stringify(d.jobR) + " after " + ms + " ms"; } },
         { name: "a job that will not stop is still reported, as stuck", ms: 6000,
           act: function () { d.jobR = null; d.jobEnd = 0;
                              return !!one().runJob(["sh", "-c", "trap '' TERM; sleep 4"], 300, function (r) { d.jobR = r; }, function () { d.jobEnd = Date.now(); }); },
@@ -148,6 +149,7 @@ Item {
     property real upSince: 0
     property var jobR: null
     property real jobEnd: 0
+    property real jobAt: 0
     property bool endEarly: false
     property real t0: 0
     property real since: 0
