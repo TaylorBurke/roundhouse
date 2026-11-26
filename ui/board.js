@@ -32,6 +32,7 @@ function newSession(sid) {
         route: [],                // stations the main loop visited, newest last: { station, ts }
         waitingId: null,          // the call whose permission ask is open, when the ask named one
         waiting: false,           // a permission ask or question is open: You waits on the owner
+        waitingSince: 0,          // when it opened (seconds), 0 while nothing is open
         newlyBlocked: [],         // calls the latest event marked blocked, for the red pulse
         devtools: false,          // a chrome-devtools MCP tool was called this session (kept beyond the entries window)
         chromeExt: false,         // a Claude-in-Chrome extension tool was called this session (likewise)
@@ -155,7 +156,12 @@ function applyTool(sess, ev, ending) {
     }
 }
 
-function clearWaiting(sess) { sess.waiting = false; sess.waitingId = null; }
+function clearWaiting(sess) { sess.waiting = false; sess.waitingId = null; sess.waitingSince = 0; }
+function openWaiting(sess, ev, id) {
+    if (!sess.waiting) sess.waitingSince = ev.ts;      // a second ask while one is open keeps the first time
+    sess.waiting = true;
+    sess.waitingId = id;
+}
 
 function fold(board, ev) {
     if (!ev || typeof ev !== "object" || !ev.sid || !ev.ev) return false;
@@ -214,8 +220,7 @@ function fold(board, ev) {
     } else if (kind === "stop_error") {
         note(sess, ev, "model", "stopped: " + (ev.error || "error"), "err");
     } else if (kind === "ask") {
-        sess.waiting = true;
-        sess.waitingId = ev.id || null;
+        openWaiting(sess, ev, ev.id || null);
         note(sess, ev, "hooks", "asked permission: " + (ev.tool || ""));
     } else if (kind === "denied") {
         clearWaiting(sess);
@@ -255,7 +260,7 @@ function fold(board, ev) {
         sess.tokensStale = false;
         if (ev.model && !sess.switched) sess.model = ev.model;
     } else if (kind === "notify") {
-        if (ASKING.indexOf(ev.type) >= 0) { sess.waiting = true; sess.waitingId = null; }    // idle_prompt and the like are not a question
+        if (ASKING.indexOf(ev.type) >= 0) openWaiting(sess, ev, null);    // idle_prompt and the like are not a question
         note(sess, ev, "you", "notification: " + (ev.type || ""));
     }
     recount(sess);
@@ -496,13 +501,17 @@ function factLines(sess, key, now) {
         var names = Object.keys(types);
         if (names.length) lines.push("running: " + names.slice(0, 3).map(function (t) { return trim(t, 20) + (types[t] > 1 ? " \u00d7" + types[t] : ""); }).join(", ") + (names.length > 3 ? " +" + (names.length - 3) : ""));
     } else if (key === "you") {
-        var wait = 0;
+        // An open question is the board's own state (sess.waiting), the same one the pulse shows; otherwise
+        // the answer is in and the next message is yours (a new message ends that).
+        var ready = 0;
         sess.entries.forEach(function (e) {
             if (e.station !== "you") return;
-            if (e.label === "new message") wait = 0;
-            else if (!wait && (e.label === "answer ready" || (e.label || "").indexOf("notification") === 0)) wait = e.ts;
+            if (e.label === "new message") ready = 0;
+            else if (!ready && (e.label === "answer ready" || (e.label || "").indexOf("notification") === 0)) ready = e.ts;
         });
-        if (wait && !sess.ended) lines.push("waiting on you since " + clock(wait));
+        if (sess.ended) { /* nothing waits on a session that has ended */ }
+        else if (sess.waiting) lines.push("waiting on you since " + clock(sess.waitingSince) + ": a question is open");
+        else if (ready) lines.push("waiting on you since " + clock(ready));
     }
     return lines.slice(0, MAX_LINES);
 }
@@ -656,7 +665,6 @@ function feedRows(sess, max) {
     return rows.slice(-max).reverse();
 }
 
-if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, agentList: agentList, agentCalls: agentCalls, report: report, problems: problems, openables: openables, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS };
 // ---- draft prompts (a left click on You) ------------------------------------------------------
 // The drafts typed into the terminal by tools/draft.py (never submitted). Nothing from the log is ever
 // typed except a tool's NAME, and only if it is plain (see toolName); the tool checks the text again.
@@ -725,3 +733,6 @@ function drafts(sess, enabled, canned) {
     (canned || CANNED_DRAFTS).forEach(function (t) { if (validDraft(t) && out.indexOf(t) < 0) out.push(t); });
     return out.slice(0, DRAFT_LIMIT);
 }
+
+if (typeof module !== "undefined") module.exports = { liveSessions: liveSessions, activeSid: activeSid, cycleSid: cycleSid, idleLabel: idleLabel, newBoard: newBoard, fold: fold, foldLine: foldLine, currentAction: currentAction, parseWindow: parseWindow, windowSize: windowSize, contextOf: contextOf, compacting: compacting, runningInfo: runningInfo, heat: heat, slow: slow, parseSlow: parseSlow, hubLines: hubLines, factLines: factLines, fmtMs: fmtMs, fmtElapsed: fmtElapsed, runningAgents: runningAgents, agentList: agentList, agentCalls: agentCalls, report: report, problems: problems, openables: openables, memoryTouches: memoryTouches, history: history, routeLegs: routeLegs, wear: wear, feedRows: feedRows, STATIONS: STATIONS,
+    toolName: toolName, validDraft: validDraft, parseDrafts: parseDrafts, isIdle: isIdle, drafts: drafts };

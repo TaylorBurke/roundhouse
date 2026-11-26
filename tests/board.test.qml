@@ -515,7 +515,7 @@ QtObject {
         });
         b = Board.newBoard();
         Board.fold(b, ev({ ts: 1, ev: "notify", type: "permission_prompt" }));
-        check("permission_prompt waits", sess(b).waiting, true);
+        check("permission_prompt waits", [sess(b).waiting, sess(b).waitingSince], [true, 1]);
         Board.fold(b, ev({ ts: 2, ev: "prompt" }));
         Board.fold(b, ev({ ts: 3, ev: "notify", type: "elicitation_dialog" }));
         check("elicitation_dialog waits", sess(b).waiting, true);
@@ -524,6 +524,21 @@ QtObject {
         check("idle_prompt does not wait", sess(b).waiting, false);
         Board.fold(b, ev({ ts: 6, ev: "notify", type: "auth_success" }));
         check("auth_success does not wait", sess(b).waiting, false);
+        // the tooltip reads the same state as the pulse: an ask (a hooks event, nothing at You) shows there too
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1000, ev: "prompt" }));
+        Board.fold(b, ev({ ts: 1010, ev: "tool_start", id: "q", station: "shell", label: "x", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 1020, ev: "ask", id: "q", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 1030, ev: "ask", id: "q", tool: "Bash" }));        // asked again: the first time stays
+        var wd = new Date(1020000), whm = (wd.getHours() < 10 ? "0" : "") + wd.getHours() + ":" + (wd.getMinutes() < 10 ? "0" : "") + wd.getMinutes();
+        check("tooltip: an open ask", Board.report(sess(b), "you", 4, 1040).lines, ["waiting on you since " + whm + ": a question is open"]);
+        Board.fold(b, ev({ ts: 1050, ev: "tool_end", id: "q", station: "shell", label: "x", tool: "Bash", status: "ok", ms: 5 }));
+        check("tooltip: the asked call ran, the wait is over", [Board.report(sess(b), "you", 4, 1060).lines, sess(b).waitingSince], [[], 0]);
+        Board.fold(b, ev({ ts: 1070, ev: "ask", tool: "Bash" }));
+        Board.fold(b, ev({ ts: 1080, ev: "session_end", reason: "exit" }));
+        check("tooltip: an ended session waits on nothing", Board.report(sess(b), "you", 4, 1090).lines, []);
+        b = Board.newBoard();
+        Board.fold(b, ev({ ts: 1, ev: "prompt" }));
         Board.fold(b, { sid: "other", ts: 7, ev: "ask", tool: "Bash" });
         check("waiting is per session", [sess(b).waiting, sess(b, "other").waiting], [false, true]);
 
