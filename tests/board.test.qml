@@ -305,9 +305,15 @@ QtObject {
         put("m8", 8, "memory", "memory/e.md", "Read");
         Board.fold(b, ev({ ts: 9, ev: "denied", id: "m8b", station: "memory", label: "memory/f.md", tool: "Write" }));
         put("m9", 10, "memory", "memory/…", "Read");                // cut short: names nothing
+        put("ma", 11, "memory", "memory/g.md", "MultiEdit");
+        put("mb", 12, "memory", "memory/h.ipynb", "NotebookEdit");
+        put("mc", 13, "memory", "Read", "Read");                         // no path: the label fell back to the tool name
+        put("md", 15, "memory", "memory/i.md", "Read");
+        put("me", 14, "memory", "memory/i.md", "Read");                  // arrives late, older: the newest ts is kept
         var mt = Board.memoryTouches(sess(b));
         check("memoryTouches", Object.keys(mt).sort().map(function (k) { return [k, mt[k].edited, mt[k].ts]; }),
-              [["memory/a.md", true, 3], ["memory/b.md", false, 4], ["memory/e.md", false, 8]]);
+              [["memory/a.md", true, 3], ["memory/b.md", false, 4], ["memory/e.md", false, 8],
+               ["memory/g.md", true, 11], ["memory/h.ipynb", true, 12], ["memory/i.md", false, 15]]);
         check("memoryTouches: no session", Object.keys(Board.memoryTouches(null)), []);
         ["shell", "network", "you", "model", "agents", "hooks", "browser", "nope"].forEach(function (k) {
             check("openables: " + k + " has nothing to open", Board.openables(sess(b), k), []);
