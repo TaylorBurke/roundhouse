@@ -393,7 +393,9 @@ FloatingWindow {
         var d = OpenList.onResolved(OpenList.parsePaths(text));
         if (d.action === "open") { openPath(d.path); closeList(); }
         else if (d.action === "choose") {
-            var r = OpenList.pathRows(d.paths, listKey === "memory" ? "memoryfiles" : listKey, home, 10);
+            var touched = listKey === "memory" ? Board.memoryTouches(session) : null;   // read/edited this session: raised and tagged
+            var r = OpenList.pathRows(listKey === "memory" ? OpenList.markMemory(d.paths, touched) : d.paths,
+                                      listKey === "memory" ? "memoryfiles" : listKey, home, 10, touched);
             listPaths = r.paths; listRowsView = r.rows;
             listTitle = listKey === "memory" ? "Memory" : Board.report(null, listKey).title + " \u00b7 " + lookingFor;
             listMode = "paths";

@@ -292,6 +292,23 @@ QtObject {
               Board.openables(sess(b), "files").map(function (i) { return [i.label, i.count]; }), [["src/a.ts", 2], ["src/b.ts", 1]]);
         check("openables: memory", Board.openables(sess(b), "memory").map(function (i) { return i.label; }), ["memory/note.md"]);
         check("openables: skills only from the Skill tool", Board.openables(sess(b), "skills").map(function (i) { return i.label; }), ["tdd-workflow"]);
+
+        // what this session did to each memory file: edited beats read; failed, refused, running and non-file calls do not count
+        b = Board.newBoard();
+        put("m1", 1, "memory", "memory/a.md", "Read");
+        put("m2", 2, "memory", "memory/a.md", "Edit");
+        put("m3", 3, "memory", "memory/a.md", "Read");                  // read after the edit: still edited, newest ts
+        put("m4", 4, "memory", "memory/b.md", "Read");
+        Board.fold(b, ev({ ts: 5, ev: "tool_end", id: "m5", station: "memory", label: "memory/c.md", tool: "Write", status: "err" }));
+        Board.fold(b, ev({ ts: 6, ev: "tool_start", id: "m6", station: "memory", label: "memory/d.md", tool: "Edit" }));   // still waiting
+        put("m7", 7, "memory", "List the memory folder", "Bash");      // a description, not a file
+        put("m8", 8, "memory", "memory/e.md", "Read");
+        Board.fold(b, ev({ ts: 9, ev: "denied", id: "m8b", station: "memory", label: "memory/f.md", tool: "Write" }));
+        put("m9", 10, "memory", "memory/…", "Read");                // cut short: names nothing
+        var mt = Board.memoryTouches(sess(b));
+        check("memoryTouches", Object.keys(mt).sort().map(function (k) { return [k, mt[k].edited, mt[k].ts]; }),
+              [["memory/a.md", true, 3], ["memory/b.md", false, 4], ["memory/e.md", false, 8]]);
+        check("memoryTouches: no session", Object.keys(Board.memoryTouches(null)), []);
         ["shell", "network", "you", "model", "agents", "hooks", "browser", "nope"].forEach(function (k) {
             check("openables: " + k + " has nothing to open", Board.openables(sess(b), k), []);
         });

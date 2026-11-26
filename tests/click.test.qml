@@ -553,6 +553,28 @@ Item {
             compare(rows.map(function (r) { return r.text; }), ["MEMORY.md", "topics/x.md", "y.md"]);
             var r = OpenList.pathRows(["/h/.claude/projects/-h-p/memory/MEMORY.md", "/h/.claude/projects/-h-p/memory/a.md"], "memoryfiles", "/h", 10);
             compare(r.rows.map(function (x) { return x.text; }), ["MEMORY.md", "a.md"]);
+            compare(r.rows.map(function (x) { return x.sub; }), ["", ""]);        // no touches given: no tags
+        }
+        function test_memory_files_this_session_touched_are_raised_and_tagged() {
+            var m = "/h/.claude/projects/-h-p/memory/";
+            var paths = [m + "MEMORY.md", m + "old.md", m + "edited.md", m + "read.md", m + "topics/x.md"];
+            var touches = { "memory/edited.md": { edited: true, ts: 5 }, "memory/read.md": { edited: false, ts: 9 },
+                            "topics/x.md": { edited: false, ts: 1 } };
+            var order = OpenList.markMemory(paths, touches);
+            compare(order, [m + "read.md", m + "edited.md", m + "topics/x.md", m + "MEMORY.md", m + "old.md"]);
+            var r = OpenList.pathRows(order, "memoryfiles", "/h", 10, touches);
+            compare(r.rows.map(function (x) { return [x.text, x.sub]; }),
+                    [["read.md", "read"], ["edited.md", "edited"], ["topics/x.md", "read"], ["MEMORY.md", ""], ["old.md", ""]]);
+            compare(r.paths, order);                                              // a pick opens the row it shows
+            compare(OpenList.markMemory(paths, null), paths);                     // nothing touched: the lookup's order
+            compare(OpenList.markMemory(null, touches), []);
+            // touched files are raised before the cut, so none hides behind "... and N more"
+            var many = [];
+            for (var i = 0; i < 12; i++) many.push(m + "f" + i + ".md");
+            var cut = OpenList.pathRows(OpenList.markMemory(many, { "memory/f11.md": { edited: true, ts: 1 } }), "memoryfiles", "/h", 10, { "memory/f11.md": { edited: true, ts: 1 } });
+            compare([cut.rows[0].text, cut.rows[0].sub, cut.rows[10].text], ["f11.md", "edited", "… and 2 more"]);
+            // an inherited name is not a touch
+            compare(OpenList.memoryFileRows(["/constructor"], {})[0].sub, "");
         }
         function test_the_lookups_answer_is_read_defensively() {
             compare(OpenList.parsePaths('{"paths": ["/h/a.md", "/h/b.md"]}'), ["/h/a.md", "/h/b.md"]);

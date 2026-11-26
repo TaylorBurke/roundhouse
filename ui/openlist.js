@@ -290,9 +290,9 @@ function folderArgs(cwd, dir, sid) {
 // The files found for one name, as list rows: at most `max` of them (what a click can open), and a
 // last row saying how many more there are. Memory files are shown by project, the rest by the
 // shortest ending that tells them apart.
-function pathRows(paths, kind, home, max) {
+function pathRows(paths, kind, home, max, touches) {
     var shown = (paths || []).slice(0, max);
-    var rows = kind === "memoryfiles" ? memoryFileRows(shown)
+    var rows = kind === "memoryfiles" ? memoryFileRows(shown, touches)
              : kind === "memory" ? memoryRows(shown, home)
              : tails(shown, home).map(function (t) { return { text: t, sub: "" }; });
     if (paths && paths.length > max) rows.push({ text: "\u2026 and " + (paths.length - max) + " more", sub: "" });
@@ -329,12 +329,35 @@ function memoryListArgs(script, cwd, dir, sid) {
 }
 
 // Memory files of one project as list rows: the path below the project's memory folder (MEMORY.md,
-// topics/x.md), which is all that tells them apart.
-function memoryFileRows(paths) {
+// topics/x.md), which is all that tells them apart. `touches` (Board.memoryTouches) tags the ones this
+// session read or edited.
+function memoryFileRows(paths, touches) {
     return (paths || []).map(function (p) {
-        var at = p.lastIndexOf("/memory/");
-        return { text: at >= 0 ? p.slice(at + "/memory/".length) : p.slice(p.lastIndexOf("/") + 1), sub: "" };
+        var at = p.lastIndexOf("/memory/"), t = touchOf(p, touches);
+        return { text: at >= 0 ? p.slice(at + "/memory/".length) : p.slice(p.lastIndexOf("/") + 1),
+                 sub: t ? (t.edited ? "edited" : "read") : "" };
     });
+}
+
+// This session's touch of a memory file, or null. The log knows a file only by its label, the path's
+// last two parts (hooks/emit.py last_two), so that is what is matched.
+function touchOf(path, touches) {
+    if (!touches || typeof path !== "string") return null;
+    var label = path.split("/").filter(function (s) { return s !== ""; }).slice(-2).join("/");
+    return Object.prototype.hasOwnProperty.call(touches, label) ? touches[label] : null;
+}
+
+// The memory files with the ones this session touched first (the newest touch first); the rest keep
+// the lookup's order (MEMORY.md, then newest). Raised before the list is cut, so a touched file is
+// never hidden behind "... and N more".
+function markMemory(paths, touches) {
+    var list = (paths || []).map(function (p, i) { return { p: p, i: i, t: touchOf(p, touches) }; });
+    list.sort(function (a, b) {
+        if (!a.t !== !b.t) return a.t ? -1 : 1;
+        if (a.t && b.t && a.t.ts !== b.t.ts) return b.t.ts - a.t.ts;
+        return a.i - b.i;
+    });
+    return list.map(function (x) { return x.p; });
 }
 
 // The lookup's answer: the list of paths, or an empty list for anything that is not {"paths": [strings]}.
