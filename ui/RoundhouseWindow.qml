@@ -154,6 +154,7 @@ FloatingWindow {
             onPick: sid => win.pinned = sid
             onFollow: win.pinned = ""
             onCycle: dir => win.cycle(dir)
+            onDragStarted: win.startSystemMove()      // the all-sessions window has no header band to drag
         }
     }
 

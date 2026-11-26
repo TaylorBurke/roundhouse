@@ -342,7 +342,8 @@ starts it when something is to be shown, and it ends by itself when nothing is.
 
 - **The all-sessions window** has the switcher and follows whichever session is most recently
   active (see "Several sessions"). It floats on every workspace. In it, `w` opens the session
-  on show in a window of its own.
+  on show in a window of its own. Drag the switcher bar (the session's name or the gaps, not the
+  `‹ ›` and `auto` buttons) to move it; a plain click on the name still opens the list.
 - **A window for one session** is fixed to it (no switcher), is titled `roundhouse: <folder> · <id>`,
   and is **not** pinned: it opens on the workspace you are on and stays there, so switching
   workspace hides it. It **follows its terminal**: when the terminal is moved to another workspace,
@@ -386,7 +387,7 @@ A window for one session starts with the same text as that session's
 [claude-strip](https://github.com/TaylorBurke/claude-strip): a dot for the phase, the task
 title, then `waiting for you` or the number of tools running, and the context bar with its
 percentage. So a terminal and its map are easy to pair up. Clicking the header focuses the
-terminal. The window title uses the strip's project name.
+terminal; dragging it moves the window. The window title uses the strip's project name.
 
 It needs claude-strip 0.4 or later, whose session-strip mod writes the session id into its
 state file (`tools/strip_state.py` reads those files, read-only, every two seconds while such a

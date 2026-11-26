@@ -6,6 +6,8 @@ import "board.js" as Board
 //                             live sessions, which pins one; click "pinned" (or press a) to go
 //                             back to following the most recently active; click the name (or
 //                             press space) for the list.
+// Dragging the bar (the name or the gaps; not the ‹ › and auto buttons) moves the window, as the
+// header band does in a session's own window: the all-sessions window has no header.
 // Sessions that ended or went quiet for 30 minutes are not listed. The parent decides what the
 // signals do (see shell.qml); this only draws and reports clicks.
 Item {
@@ -25,6 +27,7 @@ Item {
     signal pick(string sid)
     signal follow()
     signal cycle(int dir)
+    signal dragStarted()               // a press on the bar became a drag: move the window
 
     height: 24
     readonly property int count: sessions.length
@@ -48,7 +51,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
             text: "‹"; color: root.count > 1 ? root.ink : root.faint
             font.family: "monospace"; font.pixelSize: 16
-            MouseArea { anchors.fill: parent; enabled: root.count > 1; onClicked: root.cycle(-1) }
+            MouseArea { anchors.fill: parent; onClicked: if (root.count > 1) root.cycle(-1) }   // always takes the press: no drag from here
         }
         Text {
             objectName: "name"
@@ -56,7 +59,8 @@ Item {
             height: parent.height; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
             text: (root.shownName || "no session") + (root.count > 1 ? "  " + root.position + "/" + root.count : "")
             color: root.inkStrong; font.family: "monospace"; font.pixelSize: 12; font.bold: true
-            MouseArea { anchors.fill: parent; onClicked: root.open = !root.open }
+            // a tap, not a MouseArea: a MouseArea would take the press, and the drag below would never see it
+            TapHandler { onTapped: root.open = !root.open }
         }
         Text {
             id: right
@@ -65,7 +69,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
             text: "›"; color: root.count > 1 ? root.ink : root.faint
             font.family: "monospace"; font.pixelSize: 16
-            MouseArea { anchors.fill: parent; enabled: root.count > 1; onClicked: root.cycle(1) }
+            MouseArea { anchors.fill: parent; onClicked: if (root.count > 1) root.cycle(1) }
         }
         Text {
             id: mode
@@ -75,8 +79,18 @@ Item {
             text: root.pinned ? "pinned" : "auto"
             color: root.pinned ? root.accent : root.faint
             font.family: "monospace"; font.pixelSize: 11
-            MouseArea { anchors.fill: parent; enabled: root.pinned; onClicked: root.followLatest() }
+            MouseArea { anchors.fill: parent; onClicked: if (root.pinned) root.followLatest() }
         }
+    }
+
+    // Moving past the drag threshold cancels the name's tap. A press on ‹ › or auto belongs to its
+    // MouseArea, which the drag may not take over, so the buttons never drag (they stay enabled when
+    // they have nothing to do, for that: a disabled MouseArea would let the press through).
+    DragHandler {
+        target: null
+        // may take over from the name's TapHandler, never from an item (the buttons' MouseAreas)
+        grabPermissions: PointerHandler.CanTakeOverFromHandlersOfDifferentType | PointerHandler.ApprovesTakeOverByAnything
+        onActiveChanged: if (active) root.dragStarted()
     }
 
     // the list, over whatever is below the bar
