@@ -239,27 +239,14 @@ FloatingWindow {
         if (drafting || !a) return;
         if (!Board.isIdle(session)) { toast("Claude is busy; not typing"); return; }     // checked again at the pick
         drafting = true;
-        var job = draftC.createObject(win.contentItem, { command: ["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text] });
-        if (!job) { drafting = false; toast("Could not start the draft tool"); }
-    }
-    // `drafting` is cleared only when the process has exited, so two draft.py runs never overlap. After
-    // 20 s (longer than the tool's own limits) the process is told to stop; if it cannot be stopped,
-    // `drafting` stays true and picks stay ignored until this window is closed.
-    Component {
-        id: draftC
-        Item {
-            id: job
-            property var command: []
-            Process {
-                id: proc
-                command: job.command
-                running: true
-                onExited: { win.drafting = false; cleanup.start(); }
-                stderr: StdioCollector { onStreamFinished: { if (text.trim() !== "") win.toast(text.trim()); } }
-            }
-            Timer { interval: 20000; running: true; onTriggered: proc.running = false }
-            Timer { id: cleanup; interval: 1000; onTriggered: job.destroy() }      // after the stderr text has arrived
-        }
+        // `drafting` is cleared only once the process is gone, so two draft.py runs never overlap. After 20 s
+        // (longer than the tool's own limits) it is told to stop; if it will not, `drafting` stays true and
+        // picks stay ignored until it ends or this window is closed.
+        var job = runJob(["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text], 20000, function (r) {
+            if (!r.stuck) win.drafting = false;
+            if (r.err.trim() !== "") win.toast(r.err.trim());
+        });
+        if (!job) toast("Could not start the draft tool");
     }
     // A right click on any station: its recent calls, newest first (names only, from the log), or a
     // toast when there are none. The rows are a snapshot of the moment of the click.
@@ -287,7 +274,11 @@ FloatingWindow {
         ctxBusy = true;
         var seq = ++lookupSeq;
         listMode = ""; ctxOpen = false; noteTimer.stop(); clearToast();
-        ctxC.createObject(win.contentItem, { seq: seq, command: CtxPanel.args(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
+        runJob(CtxPanel.args(Quickshell.shellPath("../tools/transcript.py"), shownSid), 8000, function (r) {
+            win.ctxBusy = false;
+            if (r.late) { if (seq === win.lookupSeq && win.listMode === "") win.toast("Reading the transcript took too long"); return; }
+            win.ctxAnswer(seq, r.out);
+        });
     }
     function ctxAnswer(seq, text) {
         if (seq !== lookupSeq || listMode !== "") return;       // closed, or another click took over
@@ -295,29 +286,13 @@ FloatingWindow {
         if (!d.found) { ctxOpen = false; toast("No transcript found for this session"); return; }
         clearToast(); ctxInfo = d; ctxOpen = true; keys.forceActiveFocus();
     }
-    Component {
-        id: ctxC
-        Item {
-            id: ctxJob
-            property int seq: 0
-            property var command: []
-            Component.onDestruction: win.ctxBusy = false
-            Process {
-                id: ctxProc
-                command: ctxJob.command
-                running: true
-                stdout: StdioCollector { onStreamFinished: { win.ctxAnswer(ctxJob.seq, text); ctxJob.destroy(); } }
-            }
-            Timer { interval: 8000; running: true; onTriggered: { ctxProc.running = false; ctxJob.destroy(); } }
-        }
-    }
     function lookup(item) {
         var seq = ++lookupSeq;
         lookingFor = item.label;
         listNote = "Looking for " + item.label + "\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
         var args = OpenList.lookupArgs(Quickshell.shellPath("../tools/openable.py"), listKey, item.label,
                                        strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid, item.task || "");
-        finderC.createObject(win.contentItem, { seq: seq, command: args });
+        runJob(args, 8000, function (r) { win.found(seq, r.out); });
     }
     // Model: the current turn, read from the transcript now (tools/transcript.py turn SID; the id is the only
     // argument). Shown on screen only: nothing of it is kept beyond these properties, which are cleared
@@ -327,7 +302,7 @@ FloatingWindow {
         if (!Turn.validSid(shownSid)) { closeList(); toast("Transcript not found"); return; }
         var seq = ++lookupSeq;
         listNote = "Reading the transcript\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
-        turnC.createObject(win.contentItem, { seq: seq, command: Turn.turnArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
+        runJob(Turn.turnArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid), 8000, function (r) { win.turnAnswered(seq, r.out); });
     }
     function turnAnswered(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;
@@ -343,7 +318,9 @@ FloatingWindow {
         var ok = Turn.validSid(shownSid);
         closeList();
         if (!ok) { toast("Could not open the transcript"); return; }
-        openJobC.createObject(win.contentItem, { command: Turn.openArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid) });
+        runJob(Turn.openArgs(Quickshell.shellPath("../tools/transcript.py"), shownSid), 8000, function (r) {     // a failed open says so
+            if (r.code !== 0) win.toast("Could not open the transcript");
+        });
     }
     function lookupMemory() {
         var seq = ++lookupSeq;
@@ -351,7 +328,7 @@ FloatingWindow {
         listNote = "Looking for memory files\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
         var args = OpenList.memoryListArgs(Quickshell.shellPath("../tools/openable.py"),
                                            strip && strip.cwd ? strip.cwd : "", session && session.dir ? session.dir : "", shownSid);
-        finderC.createObject(win.contentItem, { seq: seq, command: args });
+        runJob(args, 8000, function (r) { win.found(seq, r.out); });
     }
     property bool browserBusy: false        // a window lookup is running: a second click waits for it
     function lookupBrowser() {
@@ -360,8 +337,10 @@ FloatingWindow {
         var seq = ++lookupSeq;
         lookingFor = "";
         listNote = "Looking for browser windows\u2026"; listRowsView = []; listMode = "note"; noteTimer.stop();
-        finderC.createObject(win.contentItem, { seq: seq, what: "windows",
-                             command: OpenList.browserListArgs(Quickshell.shellPath("../tools/browserwin.py")) });
+        runJob(OpenList.browserListArgs(Quickshell.shellPath("../tools/browserwin.py")), 8000, function (r) {
+            win.browserBusy = false;
+            win.foundWindows(seq, r.out);
+        });
     }
     function foundWindows(seq, text) {
         if (!OpenList.accepts(seq, lookupSeq, listMode)) return;
@@ -373,13 +352,15 @@ FloatingWindow {
         } else { closeList(); toast("No browser window open"); }
     }
     function focusBrowser(address) {
-        finderC.createObject(win.contentItem, { what: "focus", command: OpenList.browserFocusArgs(Quickshell.shellPath("../tools/browserwin.py"), address) });
+        runJob(OpenList.browserFocusArgs(Quickshell.shellPath("../tools/browserwin.py"), address), 8000, function (r) {
+            if (r.code !== 0) win.toast("Could not focus the window");
+        });
     }
     function lookupHooks() {
         var seq = ++lookupSeq;
         lookingFor = "";
         listNote = "Reading the hooks…"; listRowsView = []; listMode = "note"; noteTimer.stop();
-        finderC.createObject(win.contentItem, { seq: seq, command: OpenList.hooksListArgs(Quickshell.shellPath("../tools/hooklist.py")) });
+        runJob(OpenList.hooksListArgs(Quickshell.shellPath("../tools/hooklist.py")), 8000, function (r) { win.found(seq, r.out); });
     }
     function foundHooks(text) {
         var parsed = OpenList.parseHooks(text);
@@ -436,16 +417,21 @@ FloatingWindow {
         if (!args) { closeList(); toast("Transcript not found"); return; }
         var seq = ++lookupSeq;
         transcriptBusy = true;
-        finderC.createObject(win.contentItem, { seq: seq, what: "transcript", command: args });
+        runJob(args, 8000, function (r) {
+            win.transcriptBusy = false;
+            if (r.out.trim() !== "") win.transcriptFound(seq, r.out);
+            if (r.code !== 0) win.transcriptFailed(seq);              // stopped, crashed or failed: say so
+        });
     }
     function transcriptFound(seq, text) {
         if (seq !== lookupSeq || listMode !== "agent") return;       // closed or replaced meanwhile
-        if (text.trim() === "") return;                               // no answer: onExited decides (toast, cleanup)
         var p = OpenList.transcriptPath(text);
         closeList();
         if (!p) { toast("Transcript not found"); return; }
         // run as a job so a failed open (exit code not 0) says so instead of vanishing
-        finderC.createObject(win.contentItem, { what: "openfile", command: OpenList.openFileArgs(Quickshell.shellPath("../tools/openable.py"), p) });
+        runJob(OpenList.openFileArgs(Quickshell.shellPath("../tools/openable.py"), p), 8000, function (r) {
+            if (r.code !== 0) win.toast("Could not open the transcript");
+        });
     }
     function transcriptFailed(seq) {
         if (seq === lookupSeq && listMode === "agent") { closeList(); toast("Could not look up the transcript"); }
@@ -460,66 +446,51 @@ FloatingWindow {
     function openPath(path) {
         Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);
     }
-    // one short-lived process per lookup, stopped after 8 s if it hangs, and gone once it has answered
+    // ---- jobs: every tool the window asks something of ----------------------------------------------
+    // One short-lived process per question (a lookup, the transcript, a focus, the draft typing). `done(r)`
+    // is called exactly once with { code, out, err, late, stuck }: after the process has exited and both
+    // of its outputs are in; or, when it runs past `limit` ms, it is told to stop (`late`) and finished the
+    // same way; if 2 s later it still has not reported, `done` is called anyway, with `stuck` true when the
+    // process is still running (the job then stays until it ends). So a busy flag cleared in `done` is
+    // always cleared, and a caller that must not overlap runs (the drafts) can keep its flag while `stuck`.
+    // A job that cannot be created returns null and calls nothing.
+    function runJob(command, limit, done) {
+        return jobC.createObject(win.contentItem, { command: command, limit: limit, done: done });
+    }
     Component {
-        id: finderC
+        id: jobC
         Item {
             id: job
-            property int seq: 0
             property var command: []
-            property string what: "files"
+            property int limit: 8000
+            property var done: null
+            property string out: ""
+            property string err: ""
+            property int code: -1
+            property int waiting: 3              // the exit and both outputs
+            property bool late: false
+            property bool told: false
+            property bool gone: false
+            function report(stuck) {
+                if (!told) {
+                    told = true;
+                    var f = done;
+                    done = null;
+                    if (f) f({ code: code, out: out, err: err, late: late, stuck: stuck });
+                }
+                if (!stuck && !gone) { gone = true; destroy(); }
+            }
+            function arrived() { if (--waiting === 0) report(false); }
             Process {
-                id: proc
+                id: jobProc
                 command: job.command
                 running: true
-                stdout: StdioCollector { onStreamFinished: {
-                    if (job.what === "focus" || job.what === "openfile") return;               // judged by the exit code
-                    if (job.what === "transcript") { win.transcriptFound(job.seq, text); job.destroy(); return; }
-                    if (job.what === "windows") win.foundWindows(job.seq, text); else win.found(job.seq, text);
-                    job.destroy();
-                } }
-                onExited: (code, status) => {
-                    if (job.what === "transcript") {                // killed (timeout), crashed or failed: say so, free the click
-                        if (code !== 0) win.transcriptFailed(job.seq);
-                        job.destroy(); return;
-                    }
-                    if (job.what !== "focus" && job.what !== "openfile") return;
-                    if (code !== 0) win.toast(job.what === "openfile" ? "Could not open the transcript" : "Could not focus the window");
-                    job.destroy();
-                }
+                stdout: StdioCollector { onStreamFinished: { job.out = text; job.arrived(); } }
+                stderr: StdioCollector { onStreamFinished: { job.err = text; job.arrived(); } }
+                onExited: (code, status) => { job.code = code; job.arrived(); }
             }
-            Component.onDestruction: { if (job.what === "windows") win.browserBusy = false; if (job.what === "transcript") win.transcriptBusy = false; }
-            Timer { interval: 8000; running: true; onTriggered: proc.running = false }
-        }
-    }
-    Component {
-        id: turnC
-        Item {
-            id: tjob
-            property int seq: 0
-            property var command: []
-            Process {
-                id: tproc
-                command: tjob.command
-                running: true
-                stdout: StdioCollector { onStreamFinished: { win.turnAnswered(tjob.seq, text); tjob.destroy(); } }
-            }
-            Timer { interval: 8000; running: true; onTriggered: tproc.running = false }
-        }
-    }
-    // `transcript.py open SID` as a job, so a failed open (exit not 0) is told, not silent
-    Component {
-        id: openJobC
-        Item {
-            id: ojob
-            property var command: []
-            Process {
-                id: oproc
-                command: ojob.command
-                running: true
-                onExited: (code, status) => { if (code !== 0) win.toast("Could not open the transcript"); ojob.destroy(); }
-            }
-            Timer { interval: 8000; running: true; onTriggered: oproc.running = false }
+            Timer { interval: job.limit; running: true; onTriggered: { job.late = true; jobProc.running = false; } }
+            Timer { interval: job.limit + 2000; running: true; onTriggered: { job.late = true; job.report(jobProc.running); } }
         }
     }
     Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }

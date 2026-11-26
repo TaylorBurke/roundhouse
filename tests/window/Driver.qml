@@ -104,6 +104,23 @@ Item {
           act: function () { one().clearToast(); return station("you"); },
           ready: function () { return one().toastText !== ""; },
           check: function () { return one().listMode !== "" ? "a list opened: " + one().listMode : eq(one().toastText, "No terminal known for this session"); } },
+        { name: "left click on Model with no transcript says so", ms: 8000,
+          act: function () { one().clearToast(); return station("model"); },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return eq(one().toastText, "Transcript not found"); } },
+        // the one job component (runJob) behind every tool the window runs
+        { name: "a job reports its output, its errors and its exit code", ms: 8000,
+          act: function () { d.jobR = null; return !!one().runJob(["sh", "-c", "echo hi; echo oops >&2; exit 3"], 8000, function (r) { d.jobR = r; }); },
+          ready: function () { return !!d.jobR; },
+          check: function () { return eq(d.jobR, { code: 3, out: "hi\n", err: "oops\n", late: false, stuck: false }); } },
+        { name: "a job past its limit is stopped and reported late", ms: 5000,
+          act: function () { d.jobR = null; d.t0 = Date.now(); return !!one().runJob(["sleep", "30"], 300, function (r) { d.jobR = r; }); },
+          ready: function () { return !!d.jobR; },
+          check: function () { return d.jobR.late && !d.jobR.stuck && Date.now() - d.t0 < 2500 ? "" : "got " + JSON.stringify(d.jobR) + " after " + (Date.now() - d.t0) + " ms"; } },
+        { name: "a job that will not stop is still reported, as stuck", ms: 6000,
+          act: function () { d.jobR = null; return !!one().runJob(["sh", "-c", "trap '' TERM; sleep 4"], 300, function (r) { d.jobR = r; }); },
+          ready: function () { return !!d.jobR; },
+          check: function () { return d.jobR.late && d.jobR.stuck ? "" : "want late and stuck: " + JSON.stringify(d.jobR); } },   // Quickshell stops with SIGTERM, which this one ignores
         { name: "the all-sessions window shows the session too", ms: 2000,
           ready: function () { return win("all").shownSid === one().sid; },
           check: function () { return eq(one().sid, "abcd1234"); } }
@@ -111,6 +128,8 @@ Item {
 
     property int at: -1
     property real upSince: 0
+    property var jobR: null
+    property real t0: 0
     property real since: 0
     property bool acted: false
     function next() {
