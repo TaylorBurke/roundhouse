@@ -68,6 +68,12 @@ Item {
         compare(sw.open, true);
         compare(dragSpy.count, 1);
     }
+    function test_a_click_that_jitters_a_little_is_still_a_click() {
+        var n = findChild(sw, "name");                          // under the drag threshold (mouseDrag always passes it)
+        mousePress(n, 40, 12); mouseMove(n, 42, 13); mouseRelease(n, 42, 13);
+        compare(dragSpy.count, 0);
+        compare(sw.open, true);
+    }
     function test_dragging_a_gap_moves_the_window() {
         var prev = findChild(sw, "prev");
         mouseDrag(sw, prev.width + 3, 12, 60, 30);   // the 6 px between ‹ and the name
@@ -83,6 +89,17 @@ Item {
         compare(cycleSpy.count, 1);
         mouseClick(findChild(sw, "mode"));
         compare(followSpy.count, 1);
+    }
+    function test_the_buttons_do_not_drag_when_they_have_nothing_to_do_either() {
+        sw.sessions = [{ sid: "aaaaaaaa11", name: "alpha", idle: 3 }];   // one session: ‹ › do nothing
+        sw.pinned = false;                                                 // following: auto does nothing
+        mouseDrag(findChild(sw, "prev"), 9, 12, 60, 30);
+        mouseDrag(findChild(sw, "next"), 9, 12, -60, 30);
+        mouseDrag(findChild(sw, "mode"), 26, 12, -60, 30);
+        compare(dragSpy.count, 0);
+        mouseClick(findChild(sw, "next"));
+        mouseClick(findChild(sw, "mode"));
+        compare([cycleSpy.count, followSpy.count], [0, 0]);
     }
     function test_follow_row() {
         sw.pinned = true;

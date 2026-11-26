@@ -51,7 +51,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
             text: "‹"; color: root.count > 1 ? root.ink : root.faint
             font.family: "monospace"; font.pixelSize: 16
-            MouseArea { anchors.fill: parent; enabled: root.count > 1; onClicked: root.cycle(-1) }
+            MouseArea { anchors.fill: parent; onClicked: if (root.count > 1) root.cycle(-1) }   // always takes the press: no drag from here
         }
         Text {
             objectName: "name"
@@ -69,7 +69,7 @@ Item {
             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
             text: "›"; color: root.count > 1 ? root.ink : root.faint
             font.family: "monospace"; font.pixelSize: 16
-            MouseArea { anchors.fill: parent; enabled: root.count > 1; onClicked: root.cycle(1) }
+            MouseArea { anchors.fill: parent; onClicked: if (root.count > 1) root.cycle(1) }
         }
         Text {
             id: mode
@@ -79,12 +79,13 @@ Item {
             text: root.pinned ? "pinned" : "auto"
             color: root.pinned ? root.accent : root.faint
             font.family: "monospace"; font.pixelSize: 11
-            MouseArea { anchors.fill: parent; enabled: root.pinned; onClicked: root.followLatest() }
+            MouseArea { anchors.fill: parent; onClicked: if (root.pinned) root.followLatest() }
         }
     }
 
     // Moving past the drag threshold cancels the name's tap. A press on ‹ › or auto belongs to its
-    // MouseArea, which the drag may not take over, so the buttons never drag.
+    // MouseArea, which the drag may not take over, so the buttons never drag (they stay enabled when
+    // they have nothing to do, for that: a disabled MouseArea would let the press through).
     DragHandler {
         target: null
         // may take over from the name's TapHandler, never from an item (the buttons' MouseAreas)
