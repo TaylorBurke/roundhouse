@@ -18,13 +18,14 @@ Item {
     SignalSpy { id: pickSpy; target: sw; signalName: "pick" }
     SignalSpy { id: followSpy; target: sw; signalName: "follow" }
     SignalSpy { id: cycleSpy; target: sw; signalName: "cycle" }
+    SignalSpy { id: dragSpy; target: sw; signalName: "dragStarted" }
 
     TestCase {
     name: "SessionSwitcher"
     when: windowShown
 
     function init() {
-        pickSpy.clear(); followSpy.clear(); cycleSpy.clear();
+        pickSpy.clear(); followSpy.clear(); cycleSpy.clear(); dragSpy.clear();
         sw.open = false; sw.pinned = false; sw.shown = "bbbbbbbb22"; sw.shownName = "beta";
         sw.sessions = [{ sid: "aaaaaaaa11", name: "alpha", idle: 3 }, { sid: "bbbbbbbb22", name: "beta", idle: 200 }, { sid: "cccccccc33", name: "gamma", idle: 4000 }];
     }
@@ -58,6 +59,30 @@ Item {
         compare(sw.open, true);            // a click that did nothing would fail here
         mouseClick(findChild(sw, "name"));
         compare(sw.open, false);
+    }
+    function test_dragging_the_name_moves_the_window_and_does_not_open_the_list() {
+        mouseDrag(findChild(sw, "name"), 40, 12, 60, 30);
+        compare(dragSpy.count, 1);
+        compare(sw.open, false);
+        mouseClick(findChild(sw, "name"));           // a plain click still opens the list
+        compare(sw.open, true);
+        compare(dragSpy.count, 1);
+    }
+    function test_dragging_a_gap_moves_the_window() {
+        var prev = findChild(sw, "prev");
+        mouseDrag(sw, prev.width + 3, 12, 60, 30);   // the 6 px between ‹ and the name
+        compare(dragSpy.count, 1);
+    }
+    function test_the_buttons_do_not_drag_and_still_click() {
+        mouseDrag(findChild(sw, "prev"), 9, 12, 60, 30);
+        mouseDrag(findChild(sw, "next"), 9, 12, -60, 30);
+        sw.pinned = true;
+        mouseDrag(findChild(sw, "mode"), 26, 12, -60, 30);
+        compare(dragSpy.count, 0);
+        mouseClick(findChild(sw, "next"));
+        compare(cycleSpy.count, 1);
+        mouseClick(findChild(sw, "mode"));
+        compare(followSpy.count, 1);
     }
     function test_follow_row() {
         sw.pinned = true;
