@@ -1,0 +1,151 @@
+import QtQuick
+import QtTest
+import Quickshell
+
+// Drives the real roundhouse windows for tests/test_window.py: clicks the stations, a list row, the
+// hub and the click-away area with synthesized mouse events (QtTest's TestEvent, the same events a
+// pointer sends through the window), and checks what the window does. Each check prints one line,
+// "RH-TEST PASS <name>" or "RH-TEST FAIL <name>: <why>", then "RH-TEST DONE" and the service quits.
+// The scenario is in `steps` below; test_window.py builds the matching home folder, log and stubs.
+// With RH_SHOTS set, a picture of the single-session window is saved there after each step.
+Item {
+    id: d
+    property var windows: []                 // the RoundhouseWindow instances (Variants.instances)
+    property var tail: null
+    readonly property string shots: Quickshell.env("RH_SHOTS") || ""
+    readonly property string stubLog: Quickshell.env("RH_STUB_LOG") || ""
+
+    TestEvent { id: ev }
+    // The window's root item cannot be grabbed; a copy of it drawn off to the side can.
+    property var mirror: null
+    Component { id: mirrorC; ShaderEffectSource { x: -100000; recursive: true; live: true; hideSource: false } }
+
+    function log(s) { console.log("RH-TEST " + s); }
+    function find(item, name) {
+        if (!item) return null;
+        if (item.objectName === name) return item;
+        var kids = item.children || [];
+        for (var i = 0; i < kids.length; i++) {
+            var f = find(kids[i], name);
+            if (f) return f;
+        }
+        return null;
+    }
+    function win(id) {
+        for (var i = 0; i < windows.length; i++) if (windows[i].winId === id) return windows[i];
+        return null;
+    }
+    function one() { return win("w1"); }
+    function item(name) { var w = one(); return w ? find(w.contentItem, name) : null; }
+    function click(it, button, x, y) {
+        if (!it) return false;
+        return ev.mouseClick(it, x === undefined ? it.width / 2 : x, y === undefined ? it.height / 2 : y,
+                             button || Qt.LeftButton, Qt.NoModifier, -1);
+    }
+    function station(key, button) { return click(item("station_" + key), button); }
+    function row(i) { var l = item("openList"); return l ? click(find(l, "row" + i)) : false; }
+    function rows() { return one().listRowsView.map(function (r) { return r.text + (r.sub ? " [" + r.sub + "]" : ""); }); }
+    // What the stubs (hyprctl, omarchy, xdg-open, wl-copy ...) were asked to do, one command per line.
+    function stubCalls() {
+        var x = new XMLHttpRequest();
+        try { x.open("GET", "file://" + stubLog, false); x.send(); } catch (e) { return ""; }
+        return x.responseText || "";
+    }
+    function eq(got, want) { return JSON.stringify(got) === JSON.stringify(want) ? "" : "got " + JSON.stringify(got) + ", want " + JSON.stringify(want); }
+
+    // Each step: `act` once, then wait until `ready` is true (or `ms` pass), then `check` returns "" or why it failed.
+    property var steps: [
+        { name: "both windows load", ms: 8000,
+          // shown, laid out and the Files station clickable, for a moment (a click before that is lost)
+          ready: function () {
+              var f = !!win("all") && !!one() && d.tail.revision > 0 ? item("station_files") : null;
+              var up = !!f && one().visible && one().contentItem.width > 0 && f.width > 0 && f.clickable;
+              if (!up) { d.upSince = 0; return false; }
+              if (!d.upSince) d.upSince = Date.now();
+              return Date.now() - d.upSince >= 300;
+          },
+          check: function () { return one().session ? "" : "the single-session window has no session"; } },
+        { name: "left click on Files lists the names the session read", ms: 3000,
+          act: function () { station("files"); },
+          ready: function () { return one().listMode === "items"; },
+          check: function () { return eq(rows(), ["src/a.ts", "src/b.ts"]); } },   // newest first
+        { name: "a click on a name opens the file it resolves to", ms: 8000,
+          act: function () { row(0); },
+          ready: function () { return stubCalls().indexOf("omarchy launch editor") >= 0; },
+          check: function () {
+              if (one().listMode !== "") return "the list stayed open (" + one().listMode + ")";
+              return stubCalls().indexOf("/Work/proj/src/a.ts") >= 0 ? "" : "editor not asked for src/a.ts: " + stubCalls();
+          } },
+        { name: "left click on Memory lists the project's memory files, the read one tagged", ms: 8000,
+          act: function () { station("memory"); },
+          ready: function () { return one().listMode === "paths"; },
+          check: function () { return eq(rows(), ["notes.md [read]", "MEMORY.md", "other.md"]); } },
+        { name: "a click away closes the list", ms: 2000,
+          act: function () { var w = one(); click(item("clickAway"), Qt.LeftButton, 10, w.height - 10); },
+          ready: function () { return one().listMode === ""; },
+          check: function () { return ""; } },
+        { name: "right click on Shell lists its recent calls", ms: 2000,
+          act: function () { station("shell", Qt.RightButton); },
+          ready: function () { return one().listMode === "history"; },
+          check: function () { return eq(one().listRowsView.length, 1); } },
+        { name: "right click on another station with the list open moves the list there", ms: 2000,
+          act: function () { var w = one(), m = item("map"), p = m.pos(m.indexOf("files"));
+                             click(item("clickAway"), Qt.RightButton, m.x + p.x, m.y + p.y); },
+          ready: function () { return one().listKey === "files" && one().listMode === "history"; },
+          check: function () { return ""; } },
+        { name: "left click on Hooks lists the configured hooks", ms: 8000,
+          act: function () { one().closeList(); station("hooks"); },
+          ready: function () { return one().listMode === "hooks"; },
+          check: function () { return rows().length > 0 ? "" : "no rows"; } },
+        { name: "a click on the hub with no transcript says so", ms: 8000,
+          act: function () { one().closeList(); click(item("hub")); },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return eq(one().toastText, "No transcript found for this session"); } },
+        { name: "left click on You with no terminal known says so", ms: 2000,
+          act: function () { one().clearToast(); station("you"); },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return one().listMode === "" ? "" : "a list opened: " + one().listMode; } },
+        { name: "the all-sessions window shows the session too", ms: 2000,
+          ready: function () { return win("all").shownSid === one().sid; },
+          check: function () { return ""; } }
+    ]
+
+    property int at: -1
+    property real upSince: 0
+    property real since: 0
+    property bool acted: false
+    function next() {
+        at++;
+        acted = false;
+        since = Date.now();
+        if (at >= steps.length) { if (shots !== "") log("NOTE pictures in " + shots); log("DONE"); Qt.quit(); }
+    }
+    function shoot(name, then) {
+        var w = one();
+        if (shots === "" || !w || !w.contentItem) { then(); return; }
+        var file = shots + "/" + String(at).padStart(2, "0") + "-" + name.replace(/[^A-Za-z0-9]+/g, "-").replace(/-+$/, "") + ".png";
+        if (!d.mirror) d.mirror = mirrorC.createObject(w.contentItem, { sourceItem: w.contentItem, width: w.contentItem.width, height: w.contentItem.height });
+        var ok = d.mirror.grabToImage(function (r) { if (!r.saveToFile(file)) d.log("NOTE could not save " + file); then(); });
+        if (!ok) { d.log("NOTE could not grab the window"); then(); }
+    }
+    Timer {
+        id: pump
+        interval: 50; repeat: true; running: true
+        onTriggered: {
+            if (d.at < 0) { d.next(); return; }
+            if (d.at >= d.steps.length) return;
+            var s = d.steps[d.at];
+            var ready = false;
+            try {
+                if (!d.acted) { d.acted = true; if (s.act) s.act(); return; }
+                ready = s.ready();
+            } catch (e) { d.log("FAIL " + s.name + ": " + e); d.next(); return; }
+            if (!ready && Date.now() - d.since < s.ms) return;
+            var why = "";
+            try { why = ready ? s.check() : "timed out after " + s.ms + " ms"; } catch (e) { why = String(e); }
+            d.log((why === "" ? "PASS " : "FAIL ") + s.name + (why === "" ? "" : ": " + why));
+            pump.running = false;
+            d.shoot(s.name, function () { pump.running = true; d.next(); });
+        }
+    }
+}

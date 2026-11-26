@@ -119,6 +119,7 @@ FloatingWindow {
 
     MapView {
         id: map
+        objectName: "map"
         anchors { left: parent.left; right: parent.right; top: head.bottom }
         height: Math.min(parent.width, (parent.height - head.height) * 0.6)
         session: win.session
@@ -545,6 +546,7 @@ FloatingWindow {
     }
 
     MouseArea {                              // a click anywhere else closes the list
+        objectName: "clickAway"
         anchors.fill: parent
         z: 90
         visible: win.listMode !== "" || win.ctxOpen
@@ -558,6 +560,7 @@ FloatingWindow {
     }
     OpenList {
         id: openList
+        objectName: "openList"
         z: 100
         visible: win.listMode !== "" && win.listMode !== "turn"
         title: win.listTitle

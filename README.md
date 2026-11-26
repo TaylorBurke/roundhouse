@@ -595,7 +595,7 @@ bin/lot-map-log -s 7c8862de  one session only
 - Claude Code 2.1.295 or later is recommended (the hook events used are listed in `docs/DESIGN.md`).
 - Optional: [claude-strip](https://github.com/TaylorBurke/claude-strip) 0.4 or later, for the
   session header and the map icon.
-- To run the tests: `qml6` and `qmltestrunner` (both in `qt6-declarative`).
+- To run the tests: `qml6` and `qmltestrunner` (both in `qt6-declarative`); `quickshell` for the window test (skipped without it).
 
 ## Tests
 
@@ -606,8 +606,14 @@ python3 -m unittest discover -s tests
 Covers the emitter, the board logic and the theme (QML run under `qml6`), the map's waiting, slow, heat and press cues (`tests/visuals.test.qml`),
 the switcher and session header (clicks through Qt's input system, under `qmltestrunner`), the window
 list, the strip reader, the transcript reader (`tools/transcript.py`, read-only, fake home and fixture transcripts: huge or NaN/deeply nested lines, tail reads, interrupted prompts), and the installer (including an exact install-then-uninstall round trip).
-The terminal log viewer (`bin/lot-map-log`) has no tests of its own. A real mouse on a real Wayland window is not covered: the clicks are tested in Qt, the rest of the
-window by hand with scripted events.
+`tests/test_window.py` runs the real service (`ui/shell.qml` and every window) under Quickshell, offscreen,
+with a fake home folder, a short log and stub `hyprctl`/`omarchy`/`xdg-open`/`wtype`/`wl-copy`, and clicks
+through it with synthesized mouse events (`tests/window/Driver.qml`): Files (a list, then a name opens in the
+editor), Memory (the read file tagged), the click-away area, right clicks for recent calls, Hooks, the hub and
+You. It fails when the window does not load at all. Nothing reaches your desktop or your home folder. To
+see each step, `RH_SHOTS=/some/dir python3 -m unittest tests.test_window` saves a picture per step there.
+The terminal log viewer (`bin/lot-map-log`) has no tests of its own. Not covered: the compositor's own pointer
+delivery to a real Wayland window (the events are synthesized inside Qt), and Hyprland's window rules.
 
 ## Credit
 
