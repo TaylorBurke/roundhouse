@@ -119,12 +119,16 @@ Item {
         since = Date.now();
         if (at >= steps.length) { if (shots !== "") log("NOTE pictures in " + shots); log("DONE"); Qt.quit(); }
     }
+    Component { id: laterC; Timer { property var fn: null; running: true; onTriggered: { fn(); destroy(); } } }
+    function later(ms, fn) { laterC.createObject(d, { interval: ms, fn: fn }); }
     function shoot(name, then) {
         var w = one();
         if (shots === "" || !w || !w.contentItem) { then(); return; }
         var file = shots + "/" + String(at).padStart(2, "0") + "-" + name.replace(/[^A-Za-z0-9]+/g, "-").replace(/-+$/, "") + ".png";
         var m = mirrorC.createObject(w.contentItem, { sourceItem: w.contentItem, width: w.contentItem.width, height: w.contentItem.height });
-        var done = function () { if (m) m.destroy(); then(); };
+        var over = false;                     // a grab that never answers must not stop the run: 2 s, then on
+        var done = function () { if (over) return; over = true; if (m) m.destroy(); then(); };
+        d.later(2000, function () { if (!over) d.log("NOTE no picture for " + file); done(); });
         var ok = !!m && m.grabToImage(function (r) { if (!r.saveToFile(file)) d.log("NOTE could not save " + file); done(); });
         if (!ok) { d.log("NOTE could not grab the window"); done(); }
     }
