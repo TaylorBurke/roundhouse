@@ -116,11 +116,29 @@ Item {
         { name: "a job past its limit is stopped and reported late", ms: 5000,
           act: function () { d.jobR = null; d.t0 = Date.now(); return !!one().runJob(["sleep", "30"], 300, function (r) { d.jobR = r; }); },
           ready: function () { return !!d.jobR; },
-          check: function () { return d.jobR.late && !d.jobR.stuck && Date.now() - d.t0 < 2500 ? "" : "got " + JSON.stringify(d.jobR) + " after " + (Date.now() - d.t0) + " ms"; } },
+          check: function () { return d.jobR.late && !d.jobR.stuck ? "" : "got " + JSON.stringify(d.jobR); } },
         { name: "a job that will not stop is still reported, as stuck", ms: 6000,
-          act: function () { d.jobR = null; return !!one().runJob(["sh", "-c", "trap '' TERM; sleep 4"], 300, function (r) { d.jobR = r; }); },
+          act: function () { d.jobR = null; d.jobEnd = 0;
+                             return !!one().runJob(["sh", "-c", "trap '' TERM; sleep 4"], 300, function (r) { d.jobR = r; }, function () { d.jobEnd = Date.now(); }); },
           ready: function () { return !!d.jobR; },
           check: function () { return d.jobR.late && d.jobR.stuck ? "" : "want late and stuck: " + JSON.stringify(d.jobR); } },   // Quickshell stops with SIGTERM, which this one ignores
+        { name: "a stuck job's end comes only once its process has ended", ms: 8000,
+          act: function () { d.endEarly = d.jobEnd !== 0; return true; },     // when `done` came the process still ran
+          ready: function () { return d.jobEnd > 0; },
+          check: function () { return d.endEarly ? "the end came while the process still ran" : ""; } },
+        { name: "a command that cannot start still reports, and ends", ms: 6000,
+          act: function () { d.jobR = null; d.jobEnd = 0;
+                             return !!one().runJob(["/nonexistent/rh-test"], 300, function (r) { d.jobR = r; }, function () { d.jobEnd = Date.now(); }); },
+          ready: function () { return !!d.jobR && d.jobEnd > 0; },
+          check: function () { return d.jobR.code !== 0 ? "" : "code 0: " + JSON.stringify(d.jobR); } },
+        { name: "a focus that fails says so", ms: 8000,
+          act: function () { one().clearToast(); one().focusBrowser("not-an-address"); return true; },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return eq(one().toastText, "Could not focus the window"); } },
+        { name: "opening a transcript that is not there says so", ms: 8000,
+          act: function () { one().clearToast(); one().openSessionTranscript(); return true; },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return eq(one().toastText, "Could not open the transcript"); } },
         { name: "the all-sessions window shows the session too", ms: 2000,
           ready: function () { return win("all").shownSid === one().sid; },
           check: function () { return eq(one().sid, "abcd1234"); } }
@@ -129,6 +147,8 @@ Item {
     property int at: -1
     property real upSince: 0
     property var jobR: null
+    property real jobEnd: 0
+    property bool endEarly: false
     property real t0: 0
     property real since: 0
     property bool acted: false

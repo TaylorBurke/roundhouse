@@ -239,13 +239,12 @@ FloatingWindow {
         if (drafting || !a) return;
         if (!Board.isIdle(session)) { toast("Claude is busy; not typing"); return; }     // checked again at the pick
         drafting = true;
-        // `drafting` is cleared only once the process is gone, so two draft.py runs never overlap. After 20 s
-        // (longer than the tool's own limits) it is told to stop; if it will not, `drafting` stays true and
-        // picks stay ignored until it ends or this window is closed.
-        var job = runJob(["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text], 20000, function (r) {
-            if (!r.stuck) win.drafting = false;
-            if (r.err.trim() !== "") win.toast(r.err.trim());
-        });
+        // `drafting` is cleared only once the process is gone (the job's end), so two draft.py runs never
+        // overlap. After 20 s (longer than the tool's own limits) it is told to stop; if it will not, picks
+        // stay ignored until it ends.
+        var job = runJob(["python3", "-I", Quickshell.shellPath("../tools/draft.py"), "type", a, text], 20000,
+                         function (r) { if (r.err.trim() !== "") win.toast(r.err.trim()); },
+                         function () { win.drafting = false; });
         if (!job) toast("Could not start the draft tool");
     }
     // A right click on any station: its recent calls, newest first (names only, from the log), or a
@@ -452,10 +451,16 @@ FloatingWindow {
     // of its outputs are in; or, when it runs past `limit` ms, it is told to stop (`late`) and finished the
     // same way; if 2 s later it still has not reported, `done` is called anyway, with `stuck` true when the
     // process is still running (the job then stays until it ends). So a busy flag cleared in `done` is
-    // always cleared, and a caller that must not overlap runs (the drafts) can keep its flag while `stuck`.
-    // A job that cannot be created returns null and calls nothing.
-    function runJob(command, limit, done) {
-        return jobC.createObject(win.contentItem, { command: command, limit: limit, done: done });
+    // always cleared. `end()`, if given, is called when the job is gone: after `done`, and for a stuck
+    // process only once it has really ended, so a caller that must never overlap runs (the drafts) clears
+    // its flag there. A job that cannot be created returns null, after calling `done` (code -1) and `end`.
+    function runJob(command, limit, done, end) {
+        var job = jobC.createObject(win.contentItem, { command: command, limit: limit, done: done, end: end || null });
+        if (!job) {
+            done({ code: -1, out: "", err: "", late: false, stuck: false });
+            if (end) end();
+        }
+        return job;
     }
     Component {
         id: jobC
@@ -464,6 +469,7 @@ FloatingWindow {
             property var command: []
             property int limit: 8000
             property var done: null
+            property var end: null
             property string out: ""
             property string err: ""
             property int code: -1
@@ -491,6 +497,7 @@ FloatingWindow {
             }
             Timer { interval: job.limit; running: true; onTriggered: { job.late = true; jobProc.running = false; } }
             Timer { interval: job.limit + 2000; running: true; onTriggered: { job.late = true; job.report(jobProc.running); } }
+            Component.onDestruction: if (job.end) job.end()
         }
     }
     Timer { id: noteTimer; interval: 2500; onTriggered: win.closeList() }

@@ -149,7 +149,7 @@ class RealWindow(unittest.TestCase):
         self.assertIn("DONE", results, "the driver never finished; the service said:\n" + out[-4000:])
         self.assertEqual(failed, [], "\n".join(failed) + "\n\n" + out[-4000:])
         self.assertEqual(bad, [], "QML errors while running:\n" + "\n".join(bad))
-        self.assertGreaterEqual(len([r for r in results if r.startswith("PASS")]), 15, "\n".join(results))
+        self.assertGreaterEqual(len([r for r in results if r.startswith("PASS")]), 19, "\n".join(results))
 
     def test_a_window_that_does_not_load_fails(self):
         # the check itself: a duplicate function (the #80 breakage) must be caught for what it is
