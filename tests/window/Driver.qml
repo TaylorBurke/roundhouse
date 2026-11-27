@@ -83,6 +83,21 @@ Item {
           act: function () { var w = one(); return click(item("clickAway"), Qt.LeftButton, 10, w.height - 10); },
           ready: function () { return one().listMode === ""; },
           check: function () { return ""; } },
+        { name: "Escape closes a list", ms: 2000,
+          act: function () { one().closeList(); return station("shell", Qt.RightButton); },
+          ready: function () { return one().listMode === "history"; },
+          check: function () { ev.keyClick(Qt.Key_Escape, Qt.NoModifier, -1); return one().listMode === "" ? "" : "still open: " + one().listMode; } },
+        { name: "an answer that comes after the list was closed is ignored", ms: 8000,
+          act: function () {
+              one().closeList();                                // a list open would take the click (the click-away area)
+              if (!station("memory")) return false;             // the lookup starts: "Looking for memory files…"
+              d.wasNote = one().listMode === "note";
+              one().closeList();                                // closed before tools/openable.py answers
+              d.t0 = Date.now();
+              return true;
+          },
+          ready: function () { return Date.now() - d.t0 > 3000; },  // the answer (well under a second here) has come and gone
+          check: function () { return !d.wasNote ? "the lookup did not start with a note" : one().listMode === "" ? "" : "it reopened: " + one().listMode + " " + JSON.stringify(rows()); } },
         { name: "right click on Shell lists its recent calls", ms: 2000,
           act: function () { return station("shell", Qt.RightButton); },
           ready: function () { return one().listMode === "history"; },
@@ -151,6 +166,7 @@ Item {
     property real jobEnd: 0
     property real jobAt: 0
     property bool endEarly: false
+    property bool wasNote: false
     property real t0: 0
     property real since: 0
     property bool acted: false
