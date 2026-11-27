@@ -81,6 +81,9 @@ Item {
               if (one().listMode !== "") return "the list stayed open (" + one().listMode + ")";
               return stubCalls().indexOf("/Work/proj/src/a.ts") >= 0 ? "" : "editor not asked for src/a.ts: " + stubCalls();
           } },
+        { name: "a file open that works says nothing", ms: 8000,
+          ready: function () { return jobs() === 0; },
+          check: function () { return eq(one().toastText, ""); } },
         { name: "left click on Memory lists the project's memory files, the read one tagged", ms: 8000,
           act: function () { return station("memory"); },
           ready: function () { return one().listMode === "paths"; },
@@ -162,6 +165,18 @@ Item {
           act: function () { one().clearToast(); one().openSessionTranscript(); return true; },
           ready: function () { return one().toastText !== ""; },
           check: function () { return eq(one().toastText, "Could not open the transcript"); } },
+        { name: "a file open that is refused says so", ms: 8000,
+          act: function () { one().clearToast(); one().openPath("/nonexistent/rh-test/x.txt"); return true; },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return eq(one().toastText, "Could not open x.txt"); } },
+        { name: "a hook file that is not listed is not opened, and says so", ms: 8000,
+          act: function () { one().clearToast(); one().openHookFile("/nonexistent/rh-test/nope.sh"); return true; },
+          ready: function () { return one().toastText !== ""; },
+          check: function () { return eq(one().toastText, "Could not open nope.sh"); } },
+        { name: "a host open that works asks the browser and says nothing", ms: 8000,
+          act: function () { one().clearToast(); one().openHost("example.com"); return true; },
+          ready: function () { return stubCalls().indexOf("xdg-open https://example.com") >= 0 && jobs() === 0; },
+          check: function () { return eq(one().toastText, ""); } },
         { name: "the all-sessions window shows the session too", ms: 2000,
           ready: function () { return win("all").shownSid === one().sid; },
           check: function () { return eq(one().sid, "abcd1234"); } }
