@@ -197,7 +197,9 @@ What moves and what it means:
 - **Click Files, Memory, Skills, Network, Browser, Hooks or Agents** (the station has a faint backlight, and the pointer turns into a hand,
   when there is something to open). **Files** and **Skills** open the file behind a name in your editor
   (`omarchy launch editor`; pictures, video, audio and PDFs go to your default viewer): one name opens
-  at once, several are listed to pick from, and a name that matches several files lists those. The log
+  at once, several are listed to pick from, and a name that matches several files lists those. If the file
+  is refused or the editor cannot start, a toast says "Could not open <name>" (the same for hook files and
+  hosts). The log
   keeps no full paths, so the name is looked up on disk at the click: under the session's folder (known
   when claude-strip runs), then Claude's scratch folder, then anywhere under your home folder (not
   Claude's own plugin and transcript folders); skills are looked up in `~/.claude/skills` and the plugin

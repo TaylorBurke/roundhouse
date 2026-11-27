@@ -436,15 +436,20 @@ FloatingWindow {
     function transcriptFailed(seq) {
         if (seq === lookupSeq && listMode === "agent") { closeList(); toast("Could not look up the transcript"); }
     }
+    // Opens run as jobs: the tools start the editor or browser detached and exit at once, with a non-zero
+    // code when they refuse the path or cannot start the opener, which then says so instead of vanishing.
+    function openWith(command, what) {
+        runJob(command, 8000, function (r) { if (r.code !== 0) win.toast("Could not open " + what); });
+    }
     function openHost(host) {
         if (!OpenList.isHost(host)) { toast("Not a plain hostname, not opened"); return; }
-        Quickshell.execDetached(OpenList.openHostArgs(Quickshell.shellPath("../tools/openhost.py"), host));
+        openWith(OpenList.openHostArgs(Quickshell.shellPath("../tools/openhost.py"), host), host);
     }
     function openHookFile(path) {
-        Quickshell.execDetached(OpenList.hooksOpenArgs(Quickshell.shellPath("../tools/hooklist.py"), path));
+        openWith(OpenList.hooksOpenArgs(Quickshell.shellPath("../tools/hooklist.py"), path), OpenList.baseName(path));
     }
     function openPath(path) {
-        Quickshell.execDetached(["python3", "-I", Quickshell.shellPath("../tools/openable.py"), "open", path]);
+        openWith(OpenList.openFileArgs(Quickshell.shellPath("../tools/openable.py"), path), OpenList.baseName(path));
     }
     // ---- jobs: every tool the window asks something of ----------------------------------------------
     // One short-lived process per question (a lookup, the transcript, a focus, the draft typing). `done(r)`
