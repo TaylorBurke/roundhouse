@@ -111,6 +111,19 @@ class Files(World):
         self.assertEqual(self.resolve("files", "a/b.md"), [])
 
 
+    def test_no_editor_on_path_is_a_refusal_not_a_crash(self):
+        f = touch(os.path.join(self.proj, "notes.md"))
+        empty = os.path.join(self.tmp.name, "nobin")
+        os.makedirs(empty)
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = empty                      # no omarchy, no xdg-open
+        try:
+            self.assertFalse(openable.open_file(f))
+            self.assertFalse(openable.open_file(touch(os.path.join(self.proj, "shot.png"))))
+        finally:
+            os.environ["PATH"] = saved
+
+
 class WiderSearch(World):
     """A file the session's folder does not hold: Claude's scratch folder, or anywhere under home."""
 
