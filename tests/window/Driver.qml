@@ -35,6 +35,12 @@ Item {
         return null;
     }
     function one() { return win("w1"); }
+    // the window's running jobs (runJob items: they carry `limit` and `command`)
+    function jobs() {
+        var kids = one().contentItem.children, n = 0;
+        for (var i = 0; i < kids.length; i++) if (kids[i].limit !== undefined && kids[i].command !== undefined) n++;
+        return n;
+    }
     function item(name) { var w = one(); return w ? find(w.contentItem, name) : null; }
     function click(it, button, x, y) {
         if (!it) return false;
@@ -91,12 +97,13 @@ Item {
           act: function () {
               one().closeList();                                // a list open would take the click (the click-away area)
               if (!station("memory")) return false;             // the lookup starts: "Looking for memory files…"
-              d.wasNote = one().listMode === "note";
+              d.wasNote = one().listMode === "note" && jobs() > 0;
               one().closeList();                                // closed before tools/openable.py answers
               d.t0 = Date.now();
               return true;
           },
-          ready: function () { return Date.now() - d.t0 > 3000; },  // the answer (well under a second here) has come and gone
+          // the lookup's job has answered and is gone (not a guess at how long it takes), then a moment more
+          ready: function () { if (jobs() > 0) { d.t0 = Date.now(); return false; } return Date.now() - d.t0 > 300; },
           check: function () { return !d.wasNote ? "the lookup did not start with a note" : one().listMode === "" ? "" : "it reopened: " + one().listMode + " " + JSON.stringify(rows()); } },
         { name: "right click on Shell lists its recent calls", ms: 2000,
           act: function () { return station("shell", Qt.RightButton); },
